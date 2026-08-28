@@ -48,4 +48,4 @@ async def monapay_webhook(req: Request):
     # TODO: ghi nhận giao dịch + cập nhật đơn hàng (đẩy sang background task)
     return {"ok": True}`,
 };
-export const SAMPLE_PAYLOAD = { amount: 2500000, description: 'DH10234 NGUYEN VAN A', transfer_date: '2026-08-28 10:30:00', transaction_code: 'FT26240001234', account_number: '1234567890', bank_name: 'ACB', type: 'income' };
+export const SAMPLE_PAYLOAD = { amount: 2500000, description: 'DH10234 NGUYEN VAN A', transfer_date: '10:30:00 28/08/2026', transaction_code: 'FT26240001234', account_number: '1234567890', bank_name: 'ACB', type: 'income' };
