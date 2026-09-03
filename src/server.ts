@@ -33,7 +33,7 @@ const responseData = (value: unknown): Record<string, any> => {
 };
 
 export function createServer(getClient: () => MonaPayClient = () => MonaPayClient.fromEnv()) {
-  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.2' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
+  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.3' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
   const run = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return err(e); } };
   const runBankStep = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return bankErr(e); } };
 
@@ -171,7 +171,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   server.registerTool('monapay_get_checkout', {
     title: 'Lấy một phiên thanh toán',
     description: 'Lấy trạng thái và chi tiết checkout theo ID; nên kiểm tra server-side trước khi giao hàng. / Get a checkout by ID.',
-    inputSchema: { checkout_id: checkoutId },
+    inputSchema: { sandbox: z.boolean().optional().describe('true = phiên thử với VA sandbox, không tiền thật (dùng được khi chưa nối ngân hàng)'), checkout_id: checkoutId },
   }, ({ checkout_id }) => run((c) => c.getCheckout(checkout_id)));
   server.registerTool('monapay_list_checkouts', {
     title: 'Danh sách phiên thanh toán',

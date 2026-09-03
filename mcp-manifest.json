@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "name": "monapay-mcp",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group.",
   "product": {
     "name": "MONA Pay",
