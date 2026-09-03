@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "name": "monapay-mcp",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group.",
   "product": {
     "name": "MONA Pay",
@@ -144,7 +144,7 @@
     {
       "name": "monapay_sandbox_transaction",
       "title": "Tạo giao dịch thử (sandbox, không tốn tiền)",
-      "description": "Tạo một giao dịch tiền vào GIẢ cho VA đã nối ngân hàng: MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email như tiền thật, không tính hạn mức. Trả 422 nếu VA chưa nối ngân hàng (quay lại monapay_link_bank_start). / Create a fake incoming transaction in the sandbox.",
+      "description": "Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox.",
       "scope": "write"
     },
     {

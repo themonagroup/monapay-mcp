@@ -33,7 +33,7 @@ const responseData = (value: unknown): Record<string, any> => {
 };
 
 export function createServer(getClient: () => MonaPayClient = () => MonaPayClient.fromEnv()) {
-  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.3' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
+  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.4' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
   const run = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return err(e); } };
   const runBankStep = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return bankErr(e); } };
 
@@ -156,6 +156,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
     description: 'Tạo link thu tiền, đưa link cho khách hoặc chuyển hướng checkout; đợi webhook CHECKOUT_PAID trước khi giao hàng. / Create a hosted checkout link; wait for CHECKOUT_PAID before fulfilment.',
     inputSchema: z.object({
       amount: z.number().int().min(1_000).max(1_000_000_000).describe('Số tiền nguyên VND'),
+      sandbox: z.boolean().optional().describe('true = phiên THỬ với VA sandbox, không tiền thật; dùng được khi chưa nối ngân hàng'),
       order_code: z.string().min(1).max(50).regex(/^[A-Za-z0-9_-]+$/, 'Chỉ dùng chữ, số, _ hoặc -'),
       return_url: z.string().url().startsWith('https://'),
       cancel_url: z.string().url().startsWith('https://').optional(),
@@ -171,7 +172,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   server.registerTool('monapay_get_checkout', {
     title: 'Lấy một phiên thanh toán',
     description: 'Lấy trạng thái và chi tiết checkout theo ID; nên kiểm tra server-side trước khi giao hàng. / Get a checkout by ID.',
-    inputSchema: { sandbox: z.boolean().optional().describe('true = phiên thử với VA sandbox, không tiền thật (dùng được khi chưa nối ngân hàng)'), checkout_id: checkoutId },
+    inputSchema: { checkout_id: checkoutId },
   }, ({ checkout_id }) => run((c) => c.getCheckout(checkout_id)));
   server.registerTool('monapay_list_checkouts', {
     title: 'Danh sách phiên thanh toán',
@@ -197,7 +198,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   } }, (args) => run((c) => c.generateQr(args)));
   server.registerTool('monapay_cancel_qr', { title: 'Huỷ mã QR', description: 'Huỷ một mã VietQR động đã tạo. / Cancel a dynamic QR.', inputSchema: { qr_code_id: z.string() } }, ({ qr_code_id }) => run((c) => c.cancelQr(qr_code_id)));
   server.registerTool('monapay_list_transactions', { title: 'Tra giao dịch tiền vào', description: 'Liệt kê giao dịch tiền vào theo tài khoản ảo, phân trang tối đa 100/trang; dùng để đối soát. / List incoming transactions.', inputSchema: { virtual_account_number: z.string().describe('Số tài khoản ảo (bắt buộc; lấy từ monapay_list_virtual_accounts)'), page: z.number().int().min(1).default(1), limit: z.number().int().min(1).max(100).default(20) } }, (q) => run((c) => c.listTransactions(q)));
-  server.registerTool('monapay_sandbox_transaction', { title: 'Tạo giao dịch thử (sandbox, không tốn tiền)', description: 'Tạo một giao dịch tiền vào GIẢ cho VA đã nối ngân hàng: MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email như tiền thật, không tính hạn mức. Trả 422 nếu VA chưa nối ngân hàng (quay lại monapay_link_bank_start). / Create a fake incoming transaction in the sandbox.', inputSchema: { virtual_account_number: z.string().describe('Số tài khoản ảo đã nối'), amount: z.number().int().positive().default(10000), description: z.string().default('DH10234 test sandbox').describe('Nội dung chuyển khoản giả') } }, (body) => run((c) => c.sandboxTransaction(body)));
+  server.registerTool('monapay_sandbox_transaction', { title: 'Tạo giao dịch thử (sandbox, không tốn tiền)', description: 'Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox.', inputSchema: { virtual_account_number: z.string().optional().describe('Số VA đã nối; bỏ trống = MONA Pay tự cấp VA sandbox SBX (không cần nối ngân hàng)'), amount: z.number().int().positive().default(10000), description: z.string().default('DH10234 test sandbox').describe('Nội dung chuyển khoản giả; ghi order_code của phiên checkout để phiên đó paid') } }, (body) => run((c) => c.sandboxTransaction(body)));
   server.registerTool('monapay_list_webhooks', { title: 'Danh sách cấu hình webhook', description: 'Liệt kê webhook đã cấu hình. / List webhook configs.' }, () => run((c) => c.listWebhooks()));
   server.registerTool('monapay_create_webhook', { title: 'Tạo cấu hình webhook', description: 'Đăng ký URL nhận webhook khi có tiền vào; khuyến nghị auth_type HMAC_SHA256 + secret_key. / Create a webhook config.', inputSchema: {
     name: z.string(), webhook_url: z.string().url(), auth_type: z.enum(['NONE', 'API_KEY', 'HMAC_SHA256']).default('HMAC_SHA256'), secret_key: z.string().optional().describe('Secret ký HMAC hoặc giá trị API key'), api_key_name: z.string().optional().describe('Tên header khi auth_type=API_KEY, mặc định X-Webhook-Secret'),
