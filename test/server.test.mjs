@@ -136,6 +136,41 @@ test('tool nối ngân hàng giữ nguyên lỗi API tiếng Việt và thêm g�
   });
 });
 
+test('monapay_rotate_key xoay key hiện tại và nhắc cập nhật biến môi trường', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const parsed = new URL(String(url));
+    calls.push({ path: parsed.pathname, method: init?.method, headers: init?.headers });
+    if (parsed.pathname === '/api/v1/oauth/token') {
+      return response({ success: true, data: { access_token: 'token', expires_in: 3600 } });
+    }
+    if (parsed.pathname === '/api/v1/client-keys/list') {
+      return response({ success: true, data: [{ id: 'key-id', client_id: 'client-id' }] });
+    }
+    if (parsed.pathname === '/api/v1/client-keys/key-id/rotate') {
+      return response({ client_id: 'client-id', client_secret: 'rotated-secret' });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  await withMcp(fetchImpl, async (client) => {
+    const listed = await client.listTools();
+    const rotateTool = listed.tools.find((tool) => tool.name === 'monapay_rotate_key');
+    assert.ok(rotateTool);
+    assert.match(rotateTool.description, /secret nghi lộ/i);
+    assert.match(rotateTool.description, /MONAPAY_CLIENT_SECRET/);
+
+    const result = parsedText(await client.callTool({ name: 'monapay_rotate_key', arguments: {} }));
+    assert.equal(result.data.client_secret, 'rotated-secret');
+    assert.match(result.action_required, /MONAPAY_CLIENT_SECRET/);
+    assert.match(result.action_required, /secret cũ đã hết hiệu lực/i);
+  });
+
+  const rotateCall = calls.find((call) => call.path.endsWith('/rotate'));
+  assert.equal(rotateCall.method, 'POST');
+  assert.equal(rotateCall.headers['X-Client-Secret'], 'client-secret');
+});
+
 test('monapay_whoami trả số lượng và next_step nối ngân hàng khi chưa có bank', async () => {
   let loginCount = 0;
   const fetchImpl = async (url) => {

@@ -94,10 +94,13 @@ Nếu chưa tạo API key, có thể đặt `MONAPAY_USERNAME` và `MONAPAY_PASS
 | `monapay_list_email_suppressions` · `monapay_remove_email_suppression` | xem và gỡ địa chỉ bị chặn gửi |
 | `monapay_retry_transaction` | gửi lại webhook hoặc Telegram cho một giao dịch |
 | `monapay_generate_key` | sinh client_secret mới |
+| `monapay_rotate_key` | xoay secret của key hiện tại khi nghi bị lộ; sau đó phải cập nhật `MONAPAY_CLIENT_SECRET` |
 | `monapay_verify_signature` | kiểm chữ ký webhook ngay tại chỗ, không gọi mạng |
 | `monapay_generate_webhook_snippet` | code mẫu endpoint nhận webhook PHP / Node / Python đúng chuẩn |
 
 Resource: `monapay://docs/llms` (mục lục tài liệu máy đọc), `monapay://docs/{slug}` (một trang docs dạng markdown, ví dụ `monapay://docs/webhooks/tich-hop-webhook`). Prompt: `integrate-monapay` (6 bước để agent tự tích hợp).
+
+`monapay_rotate_key` dùng `X-Client-Secret` hiện tại để xoay đúng key khớp với `MONAPAY_CLIENT_ID`. Secret cũ hết hiệu lực ngay; hãy thay `MONAPAY_CLIENT_SECRET` trong cấu hình MCP và khởi động lại plugin/agent.
 
 ## Ví dụ hội thoại
 

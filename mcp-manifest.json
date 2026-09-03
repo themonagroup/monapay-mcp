@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "name": "monapay-mcp",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group.",
   "product": {
     "name": "MONA Pay",
@@ -265,6 +265,12 @@
       "name": "monapay_generate_key",
       "title": "Tạo API key (client_secret)",
       "description": "Sinh client_secret mới (hiện 1 lần) để dùng header X-Client-Secret. / Generate a client secret.",
+      "scope": "write"
+    },
+    {
+      "name": "monapay_rotate_key",
+      "title": "Xoay secret API key hiện tại",
+      "description": "Dùng khi secret nghi lộ; xoay key hiện tại bằng X-Client-Secret. Sau khi xoay phải cập nhật MONAPAY_CLIENT_SECRET ở plugin/agent rồi khởi động lại. / Rotate the current API key secret after suspected exposure, then update MONAPAY_CLIENT_SECRET.",
       "scope": "write"
     },
     {

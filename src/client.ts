@@ -9,6 +9,7 @@ export type MonaPayOptions = CommonOptions & {
   password?: string;
 };
 export type Envelope<T = unknown> = { success: boolean; message: string; data: T };
+export type ClientKeyCredentials = { client_id: string; client_secret: string };
 export type VirtualAccountRegistrationBody = {
   bank_account_id?: string;
   customer_type?: 'PERS' | 'ORG';
@@ -230,6 +231,39 @@ export class MonaPayClient {
   retryTransaction(transactionId: string, body: { target_type: 'WEBHOOK' | 'TELEGRAM'; target_id?: string }) { return this.request('POST', `/api/v1/acb/virtual-account/transactions/${transactionId}/retry`, body); }
   generateKey(name: string) { return this.request('POST', '/api/v1/client-keys/generate', { name }); }
   listKeys() { return this.request('GET', '/api/v1/client-keys/list'); }
+  async rotateCurrentKey(): Promise<Envelope<ClientKeyCredentials>> {
+    if (!this.opts.clientId || !this.opts.clientSecret) {
+      throw new Error('monapay_rotate_key cần MONAPAY_CLIENT_ID và MONAPAY_CLIENT_SECRET của key hiện tại');
+    }
+
+    const listed = await this.listKeys();
+    const listPayload = (listed as unknown as Record<string, unknown>)?.data ?? listed;
+    const current = collectionItems(listPayload).find((key) => key.client_id === this.opts.clientId);
+    const keyId = current?.id || current?._id;
+    if (typeof keyId !== 'string' || !keyId) {
+      throw new Error('Không tìm thấy API key khớp với MONAPAY_CLIENT_ID hiện tại');
+    }
+
+    const response = await this.request<ClientKeyCredentials>(
+      'POST',
+      `/api/v1/client-keys/${encodeURIComponent(keyId)}/rotate`,
+      {},
+    );
+    const data = ((response as unknown as Record<string, unknown>)?.data ?? response) as ClientKeyCredentials;
+    if (!data?.client_id || !data?.client_secret) {
+      throw new Error('MONA Pay không trả client_id và client_secret mới sau khi xoay');
+    }
+
+    this.opts.clientId = data.client_id;
+    this.opts.clientSecret = data.client_secret;
+    this.token = null;
+    this.tokenExp = 0;
+    return {
+      success: true,
+      message: 'Đã xoay secret API key; secret cũ hết hiệu lực ngay',
+      data,
+    };
+  }
 }
 
 function collectionItems(value: unknown): Array<Record<string, unknown>> {

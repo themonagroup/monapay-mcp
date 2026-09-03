@@ -103,6 +103,42 @@ test('POST gửi X-Client-Secret + Content-Type', async () => {
   const w = log.find((l) => l.url.includes('/client-webhooks'));
   assert.equal(w.method, 'POST'); assert.equal(w.headers['X-Client-Secret'], 's'); assert.equal(JSON.parse(w.body).name, 'a');
 });
+test('rotateCurrentKey tìm đúng key, xoay bằng secret hiện tại và dùng secret mới sau đó', async () => {
+  const log = [];
+  const fetchImpl = async (url, init) => {
+    const parsed = new URL(String(url));
+    log.push({ url: String(url), path: parsed.pathname, method: init?.method, headers: init?.headers, body: init?.body });
+    if (parsed.pathname === '/api/v1/oauth/token') {
+      return new Response(JSON.stringify({ success: true, data: { access_token: `token-${log.length}`, expires_in: 3600 } }), { status: 200 });
+    }
+    if (parsed.pathname === '/api/v1/client-keys/list') {
+      return new Response(JSON.stringify({ success: true, data: [
+        { id: 'other-id', client_id: 'other-client' },
+        { id: 'current/id', client_id: 'cid' },
+      ] }), { status: 200 });
+    }
+    if (parsed.pathname === '/api/v1/client-keys/current%2Fid/rotate') {
+      return new Response(JSON.stringify({ client_id: 'cid', client_secret: 'new-secret' }), { status: 200 });
+    }
+    if (parsed.pathname === '/api/v1/client-keys/generate') {
+      return new Response(JSON.stringify({ success: true, data: { id: 'new-key' } }), { status: 200 });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  const c = new MonaPayClient({ clientId: 'cid', clientSecret: 'old-secret', baseUrl: 'https://x.test', fetchImpl });
+
+  const rotated = await c.rotateCurrentKey();
+  assert.deepEqual(rotated.data, { client_id: 'cid', client_secret: 'new-secret' });
+  const rotateCall = log.find((call) => call.path.endsWith('/rotate'));
+  assert.equal(rotateCall.headers['X-Client-Secret'], 'old-secret');
+  assert.deepEqual(JSON.parse(rotateCall.body), {});
+
+  await c.generateKey('after-rotate');
+  const oauthCalls = log.filter((call) => call.path === '/api/v1/oauth/token');
+  assert.equal(JSON.parse(oauthCalls.at(-1).body).client_secret, 'new-secret');
+  const generateCall = log.find((call) => call.path.endsWith('/generate'));
+  assert.equal(generateCall.headers['X-Client-Secret'], 'new-secret');
+});
 test('401 → login lại và retry 1 lần', async () => {
   const log = []; const c = new MonaPayClient({ username: 'u', password: 'p', baseUrl: 'https://x.test', fetchImpl: mockFetch(log) });
   const r = await c.request('GET', '/expired');
