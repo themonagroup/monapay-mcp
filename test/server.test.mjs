@@ -185,6 +185,7 @@ test('monapay_whoami trả số lượng và next_step nối ngân hàng khi ch�
     if (parsed.pathname === '/api/v1/client-webhooks') return response({ success: true, data: [] });
     if (parsed.pathname === '/api/v1/telegram-configs') return response({ success: true, data: [] });
     if (parsed.pathname === '/api/v1/email-configs') return response({ success: true, data: [] });
+    if (parsed.pathname === '/api/v1/zalo-groups') return response({ success: true, data: [] });
     throw new Error(`Unexpected URL: ${url}`);
   };
   await withMcp(fetchImpl, async (client) => {
@@ -251,6 +252,63 @@ test('11 tool email có schema chặt và ánh xạ đúng API', async () => {
   assert.match(apiCalls[8].search, /to_date=2026-09-03/);
   assert.equal(apiCalls[9].path, '/api/v1/email-suppressions');
   assert.equal(apiCalls[10].path, '/api/v1/email-suppressions/bounce%2Btag%40example.com');
+  for (const call of apiCalls.filter((item) => item.method !== 'GET')) {
+    assert.equal(call.headers['X-Client-Secret'], 'client-secret');
+  }
+});
+
+test('6 tool nhóm Zalo có schema chặt và ánh xạ đúng API', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const parsed = new URL(String(url));
+    calls.push({ path: parsed.pathname, search: parsed.search, method: init?.method, body: init?.body, headers: init?.headers });
+    if (parsed.pathname === '/api/v1/oauth/token') return response({ success: true, data: { access_token: 'token', expires_in: 3600 } });
+    return response({ success: true, data: { ok: true } });
+  };
+  const configId = '1f0e9d76-3f00-6000-8000-000000000001';
+
+  await withMcp(fetchImpl, async (client) => {
+    const listed = await client.listTools();
+    assert.equal(listed.tools.length, 47);
+    const zaloToolNames = [
+      'monapay_list_zalo_groups', 'monapay_create_zalo_group', 'monapay_update_zalo_group',
+      'monapay_delete_zalo_group', 'monapay_test_zalo_group', 'monapay_zalo_group_logs',
+    ];
+    for (const name of zaloToolNames) assert.ok(listed.tools.some((tool) => tool.name === name), `${name} phải được đăng ký`);
+    const createTool = listed.tools.find((tool) => tool.name === 'monapay_create_zalo_group');
+    assert.match(createTool.description, /bot Gấu Mona/);
+    assert.match(createTool.description, /MONA Account\/PMS/);
+    assert.match(createTool.description, /không parse Markdown/);
+    assert.equal(createTool.inputSchema.properties.group_id.pattern, '^\\d{10,25}$');
+    assert.deepEqual(createTool.inputSchema.properties.events.default, ['TRANSACTION_IN']);
+    const updateTool = listed.tools.find((tool) => tool.name === 'monapay_update_zalo_group');
+    assert.equal(updateTool.inputSchema.properties.id.format, undefined);
+
+    await client.callTool({ name: 'monapay_list_zalo_groups', arguments: {} });
+    await client.callTool({
+      name: 'monapay_create_zalo_group',
+      arguments: { group_id: '1234567890123', friendly_name: 'Kế toán', message_template: 'Nhận {amount}', events: ['TRANSACTION_IN', 'CHECKOUT_PAID'] },
+    });
+    await client.callTool({ name: 'monapay_update_zalo_group', arguments: { id: configId, friendly_name: 'Kế toán mới', is_active: false } });
+    await client.callTool({ name: 'monapay_delete_zalo_group', arguments: { id: configId } });
+    await client.callTool({ name: 'monapay_test_zalo_group', arguments: { id: configId } });
+    await client.callTool({ name: 'monapay_zalo_group_logs', arguments: { limit: 20, status: 'failed' } });
+  });
+
+  const apiCalls = calls.filter((call) => call.path !== '/api/v1/oauth/token');
+  assert.equal(apiCalls.length, 6);
+  assert.equal(apiCalls[0].path, '/api/v1/zalo-groups');
+  assert.deepEqual(JSON.parse(apiCalls[1].body), {
+    group_id: '1234567890123', friendly_name: 'Kế toán', message_template: 'Nhận {amount}', events: ['TRANSACTION_IN', 'CHECKOUT_PAID'],
+  });
+  assert.equal(apiCalls[2].path, `/api/v1/zalo-groups/${configId}`);
+  assert.equal(apiCalls[2].method, 'PUT');
+  assert.deepEqual(JSON.parse(apiCalls[2].body), { friendly_name: 'Kế toán mới', is_active: false });
+  assert.equal(apiCalls[3].method, 'DELETE');
+  assert.equal(apiCalls[4].path, `/api/v1/zalo-groups/${configId}/test`);
+  assert.deepEqual(JSON.parse(apiCalls[4].body), {});
+  assert.match(apiCalls[5].search, /limit=20/);
+  assert.match(apiCalls[5].search, /status=failed/);
   for (const call of apiCalls.filter((item) => item.method !== 'GET')) {
     assert.equal(call.headers['X-Client-Secret'], 'client-secret');
   }

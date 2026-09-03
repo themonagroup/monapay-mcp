@@ -1,6 +1,6 @@
 # monapay-mcp — MCP server cho MONA Pay
 
-MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram và email, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút. Miễn phí hoàn toàn, tiền không đi qua MONA Pay.
+MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram, email và nhóm Zalo, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút. Miễn phí hoàn toàn, tiền không đi qua MONA Pay.
 
 `monapay-mcp` cho **Claude Code, Cursor, Codex** (hoặc bất kỳ client MCP nào) gọi thẳng MONA Pay ngay trong lúc code: tạo VietQR cho đơn, tra giao dịch, cấu hình và bắn thử webhook, kiểm chữ ký HMAC, lấy code mẫu nhận webhook. Không cần rời IDE.
 
@@ -87,11 +87,13 @@ Nếu chưa tạo API key, có thể đặt `MONAPAY_USERNAME` và `MONAPAY_PASS
 | `monapay_list_transactions` | tra giao dịch tiền vào theo VA (đối soát) |
 | `monapay_list_webhooks` · `monapay_create_webhook` · `monapay_update_webhook` · `monapay_delete_webhook` | cấu hình webhook (HMAC-SHA256 khuyến nghị) |
 | `monapay_test_webhook` · `monapay_webhook_logs` · `monapay_webhook_stats` | bắn thử, lịch sử từng lần gửi, tỷ lệ thành công / P95 |
-| `monapay_sandbox_transaction` | Tạo giao dịch tiền vào giả cho VA đã nối (webhook/Telegram/email chạy như thật, không tính hạn mức). |
+| `monapay_sandbox_transaction` | Tạo giao dịch tiền vào giả cho VA đã nối (webhook/Telegram/email/Zalo chạy như thật, không tính hạn mức). |
 | `monapay_list_email_configs` · `monapay_create_email_config` · `monapay_update_email_config` · `monapay_delete_email_config` | cấu hình email cho tối đa 10 người nhận |
 | `monapay_verify_email` · `monapay_resend_email_verification` · `monapay_test_email` | xác minh bằng mã 6 số, gửi lại mã và gửi email thử |
 | `monapay_email_logs` · `monapay_email_stats` | lịch sử meta, tỷ lệ thành công / P95 và nhóm lỗi gửi email |
 | `monapay_list_email_suppressions` · `monapay_remove_email_suppression` | xem và gỡ địa chỉ bị chặn gửi |
+| `monapay_list_zalo_groups` · `monapay_create_zalo_group` · `monapay_update_zalo_group` · `monapay_delete_zalo_group` | xem và cấu hình thông báo vào nhóm Zalo |
+| `monapay_test_zalo_group` · `monapay_zalo_group_logs` | gửi thử và tra lịch sử gửi nhóm Zalo |
 | `monapay_retry_transaction` | gửi lại webhook hoặc Telegram cho một giao dịch |
 | `monapay_generate_key` | sinh client_secret mới |
 | `monapay_rotate_key` | xoay secret của key hiện tại khi nghi bị lộ; sau đó phải cập nhật `MONAPAY_CLIENT_SECRET` |
@@ -118,6 +120,14 @@ OTP do ACB gửi về số điện thoại đăng ký của chủ tài khoản. 
 4. Hỏi người dùng OTP lần 2 rồi gọi `monapay_notification_verify_otp`. Từ đây tiền vào sẽ được MONA Pay chuyển tiếp qua webhook đã cấu hình.
 
 Nếu OTP sai hoặc hết hạn, gọi lại bước trước để ACB gửi mã mới.
+
+## Thông báo nhóm Zalo
+
+Nhóm của khách phải có **bot Gấu Mona** do MONA thêm vào. `group_id` gồm 10–25 chữ số: khách hàng MONA lấy trong MONA Account/PMS tại dự án → kết nối Zalo → `chatId`, hoặc nhờ đội MONA tra theo tên nhóm. Người dùng chưa phải khách MONA chưa thể tự thêm bot; liên hệ MONA qua **1900 636 648** để nối nhóm Zalo.
+
+Gọi `monapay_create_zalo_group` với `group_id`, tên dễ nhớ và các sự kiện cần nhận: `TRANSACTION_IN`, `CHECKOUT_PAID`, `WEBHOOK_FAILED`, `VA_CREATED`. Có thể giới hạn theo `virtual_account_id`, gửi thử bằng `monapay_test_zalo_group`, rồi kiểm tra bằng `monapay_zalo_group_logs`.
+
+Zalo không parse Markdown. `message_template` phải là text thuần và hỗ trợ các biến `{amount}`, `{description}`, `{virtual_account_number}`, `{transaction_code}`, `{transfer_date}`; dạng `{{amount}}` cũng được hỗ trợ.
 
 ## Chữ ký webhook
 

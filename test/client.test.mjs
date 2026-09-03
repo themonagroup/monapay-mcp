@@ -15,6 +15,7 @@ function mockFetch(log) {
     if (u.includes('/client-webhooks')) return new Response(JSON.stringify({ success: true, message: 'ok', data: init?.method === 'GET' ? [] : { id: 'w1' } }), { status: 200 });
     if (u.includes('/telegram-configs')) return new Response(JSON.stringify({ success: true, message: 'ok', data: [] }), { status: 200 });
     if (u.includes('/email-configs')) return new Response(JSON.stringify({ success: true, message: 'ok', data: init?.method === 'GET' ? [] : { id: 'e1' } }), { status: 200 });
+    if (u.includes('/zalo-groups')) return new Response(JSON.stringify({ success: true, message: 'ok', data: init?.method === 'GET' ? [] : { id: 'z1' } }), { status: 200 });
     return new Response(JSON.stringify({ success: true, message: 'ok', data: null }), { status: 200 });
   };
 }
@@ -80,6 +81,7 @@ test('whoami đếm VA và hướng dẫn tạo webhook khi bank đã nối', as
     if (path === '/api/v1/client-webhooks') return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
     if (path === '/api/v1/telegram-configs') return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
     if (path === '/api/v1/email-configs') return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+    if (path === '/api/v1/zalo-groups') return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
     if (path.endsWith('/virtual-account/retrieve')) return new Response(JSON.stringify({ success: true, data: { data: [{ id: 'va-1' }], total: 2 } }), { status: 200 });
     throw new Error(`Unexpected URL: ${url}`);
   };
@@ -88,7 +90,7 @@ test('whoami đếm VA và hướng dẫn tạo webhook khi bank đã nối', as
   assert.equal(result.data.bank_accounts, 1);
   assert.equal(result.data.virtual_accounts, 2);
   assert.equal(result.data.webhooks, 0);
-  assert.equal(result.data.next_step, 'Chưa có kênh thông báo nào (webhook/Telegram/email): gọi monapay_create_webhook hoặc monapay_create_email_config');
+  assert.equal(result.data.next_step, 'Chưa có kênh thông báo nào (webhook/Telegram/email/Zalo): gọi monapay_create_webhook, monapay_create_email_config hoặc monapay_create_zalo_group');
 });
 test('login 1 lần rồi cache token, GET không gửi X-Client-Secret', async () => {
   const log = []; const c = new MonaPayClient({ username: 'u', password: 'p', clientSecret: 's', baseUrl: 'https://x.test/', fetchImpl: mockFetch(log) });
@@ -185,6 +187,38 @@ test('12 method email dựng đúng endpoint, query, body và header ghi', async
   assert.match(calls[9].url, /from_date=2026-09-01/);
   assert.equal(calls[10].url, 'https://x.test/api/v1/email-suppressions');
   assert.equal(calls[11].url, 'https://x.test/api/v1/email-suppressions/bounce%2Btag%40example.com');
+  for (const call of calls.filter((item) => item.method !== 'GET')) {
+    assert.equal(call.headers['X-Client-Secret'], 'secret');
+  }
+});
+
+test('6 method nhóm Zalo dựng đúng endpoint, query, body và header ghi', async () => {
+  const log = [];
+  const c = new MonaPayClient({ clientId: 'cid', clientSecret: 'secret', baseUrl: 'https://x.test', fetchImpl: mockFetch(log) });
+  await c.listZaloGroups();
+  await c.createZaloGroup({
+    group_id: '1234567890123', friendly_name: 'Kế toán', events: ['TRANSACTION_IN', 'CHECKOUT_PAID'],
+  });
+  await c.updateZaloGroup('config/id', { friendly_name: 'Kế toán mới', is_active: false });
+  await c.deleteZaloGroup('config/id');
+  await c.testZaloGroup('config/id');
+  await c.zaloGroupLogs({ limit: 20, status: 'failed' });
+
+  const calls = log.filter((item) => !item.url.endsWith('/oauth/token'));
+  assert.equal(calls.length, 6);
+  assert.equal(calls[0].url, 'https://x.test/api/v1/zalo-groups');
+  assert.equal(calls[0].method, 'GET');
+  assert.deepEqual(JSON.parse(calls[1].body), {
+    group_id: '1234567890123', friendly_name: 'Kế toán', events: ['TRANSACTION_IN', 'CHECKOUT_PAID'],
+  });
+  assert.equal(calls[2].url, 'https://x.test/api/v1/zalo-groups/config%2Fid');
+  assert.equal(calls[2].method, 'PUT');
+  assert.deepEqual(JSON.parse(calls[2].body), { friendly_name: 'Kế toán mới', is_active: false });
+  assert.equal(calls[3].method, 'DELETE');
+  assert.equal(calls[4].url, 'https://x.test/api/v1/zalo-groups/config%2Fid/test');
+  assert.deepEqual(JSON.parse(calls[4].body), {});
+  assert.match(calls[5].url, /limit=20/);
+  assert.match(calls[5].url, /status=failed/);
   for (const call of calls.filter((item) => item.method !== 'GET')) {
     assert.equal(call.headers['X-Client-Secret'], 'secret');
   }

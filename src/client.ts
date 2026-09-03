@@ -44,6 +44,17 @@ export type EmailLogQuery = {
   limit?: number;
 };
 export type EmailStatsQuery = { from_date?: string; to_date?: string };
+export type ZaloGroupEvent = 'TRANSACTION_IN' | 'CHECKOUT_PAID' | 'WEBHOOK_FAILED' | 'VA_CREATED';
+export type ZaloGroupBody = {
+  group_id: string;
+  friendly_name: string;
+  virtual_account_id?: string;
+  message_template?: string;
+  events?: ZaloGroupEvent[];
+  is_active?: boolean;
+};
+export type ZaloGroupUpdateBody = Partial<ZaloGroupBody>;
+export type ZaloGroupLogQuery = { limit?: number; status?: 'ok' | 'failed' };
 export type CheckoutCreateBody = {
   amount: number;
   order_code: string;
@@ -141,12 +152,13 @@ export class MonaPayClient {
   billingUsage() { return this.request('GET', '/api/v1/billing/usage'); }
   async whoami() {
     const profileResponse = await this.me();
-    const [usageResponse, bankResponse, webhookResponse, telegramResponse, emailResponse] = await Promise.all([
+    const [usageResponse, bankResponse, webhookResponse, telegramResponse, emailResponse, zaloResponse] = await Promise.all([
       this.billingUsage(),
       this.listBankAccounts({ page: 1, limit: 100 }),
       this.listWebhooks(),
       this.listTelegramConfigs(),
       this.listEmailConfigs(),
+      this.listZaloGroups(),
     ]);
     const profile = (profileResponse.data || {}) as Record<string, unknown>;
     const usage = (usageResponse.data || {}) as Record<string, unknown>;
@@ -155,6 +167,7 @@ export class MonaPayClient {
     const webhookCount = collectionCount(webhookResponse.data);
     const telegramCount = collectionCount(telegramResponse.data);
     const emailCount = collectionCount(emailResponse.data);
+    const zaloCount = collectionCount(zaloResponse.data);
     const bankAccountIds = bankAccounts
       .map((account) => typeof account.id === 'string' ? account.id : '')
       .filter(Boolean);
@@ -174,8 +187,8 @@ export class MonaPayClient {
         ? 'Kiểm tra tài khoản ảo: gọi monapay_list_virtual_accounts với bank_account_id đã nối'
         : virtualAccountCount === 0
           ? 'Tạo tài khoản ảo: gọi monapay_link_bank_start với bank_account_id đã nối'
-          : webhookCount === 0 && telegramCount === 0 && emailCount === 0
-            ? 'Chưa có kênh thông báo nào (webhook/Telegram/email): gọi monapay_create_webhook hoặc monapay_create_email_config'
+          : webhookCount === 0 && telegramCount === 0 && emailCount === 0 && zaloCount === 0
+            ? 'Chưa có kênh thông báo nào (webhook/Telegram/email/Zalo): gọi monapay_create_webhook, monapay_create_email_config hoặc monapay_create_zalo_group'
             : 'Sẵn sàng nhận tiền';
     return {
       success: true,
@@ -228,6 +241,12 @@ export class MonaPayClient {
   emailStats(q: EmailStatsQuery = {}) { return this.request('GET', '/api/v1/email-logs/stats', undefined, q); }
   listEmailSuppressions() { return this.request('GET', '/api/v1/email-suppressions'); }
   removeEmailSuppression(email: string) { return this.request('DELETE', `/api/v1/email-suppressions/${encodeURIComponent(email)}`); }
+  listZaloGroups() { return this.request('GET', '/api/v1/zalo-groups'); }
+  createZaloGroup(body: ZaloGroupBody) { return this.request('POST', '/api/v1/zalo-groups', body); }
+  updateZaloGroup(id: string, body: ZaloGroupUpdateBody) { return this.request('PUT', `/api/v1/zalo-groups/${encodeURIComponent(id)}`, body); }
+  deleteZaloGroup(id: string) { return this.request('DELETE', `/api/v1/zalo-groups/${encodeURIComponent(id)}`); }
+  testZaloGroup(id: string) { return this.request('POST', `/api/v1/zalo-groups/${encodeURIComponent(id)}/test`, {}); }
+  zaloGroupLogs(q: ZaloGroupLogQuery = {}) { return this.request('GET', '/api/v1/zalo-groups/logs', undefined, q); }
   retryTransaction(transactionId: string, body: { target_type: 'WEBHOOK' | 'TELEGRAM'; target_id?: string }) { return this.request('POST', `/api/v1/acb/virtual-account/transactions/${transactionId}/retry`, body); }
   generateKey(name: string) { return this.request('POST', '/api/v1/client-keys/generate', { name }); }
   listKeys() { return this.request('GET', '/api/v1/client-keys/list'); }

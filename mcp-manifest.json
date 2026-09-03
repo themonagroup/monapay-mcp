@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "name": "monapay-mcp",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group.",
   "product": {
     "name": "MONA Pay",
@@ -144,7 +144,7 @@
     {
       "name": "monapay_sandbox_transaction",
       "title": "Tạo giao dịch thử (sandbox, không tốn tiền)",
-      "description": "Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox.",
+      "description": "Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email/Zalo, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox.",
       "scope": "write"
     },
     {
@@ -254,6 +254,42 @@
       "title": "Gỡ chặn gửi tới một email",
       "description": "Gỡ suppression sau khi đã sửa nguyên nhân; client tự chịu trách nhiệm khi gửi lại. / Remove a suppression after fixing its cause; the client accepts responsibility for future sends.",
       "scope": "email:write"
+    },
+    {
+      "name": "monapay_list_zalo_groups",
+      "title": "Danh sách nhóm Zalo",
+      "description": "Liệt kê cấu hình thông báo nhóm Zalo; nhóm phải có bot Gấu Mona.",
+      "scope": "read"
+    },
+    {
+      "name": "monapay_create_zalo_group",
+      "title": "Nối nhóm Zalo",
+      "description": "Nối nhóm có bot Gấu Mona bằng group_id 10–25 chữ số lấy từ MONA Account/PMS; Zalo không parse Markdown, nên template phải là text thuần.",
+      "scope": "write"
+    },
+    {
+      "name": "monapay_update_zalo_group",
+      "title": "Sửa nhóm Zalo",
+      "description": "Sửa cấu hình nhóm có bot Gấu Mona; group_id lấy từ MONA Account/PMS và template dùng text thuần vì Zalo không parse Markdown.",
+      "scope": "write"
+    },
+    {
+      "name": "monapay_delete_zalo_group",
+      "title": "Xoá nhóm Zalo",
+      "description": "Xoá một cấu hình thông báo nhóm Zalo.",
+      "scope": "write"
+    },
+    {
+      "name": "monapay_test_zalo_group",
+      "title": "Gửi thử vào nhóm Zalo",
+      "description": "Gửi tin thử text thuần; nhóm phải có bot Gấu Mona vì Zalo không parse Markdown.",
+      "scope": "write"
+    },
+    {
+      "name": "monapay_zalo_group_logs",
+      "title": "Lịch sử gửi nhóm Zalo",
+      "description": "Tra lịch sử gửi vào nhóm Zalo, lọc trạng thái thành công hoặc thất bại.",
+      "scope": "read"
     },
     {
       "name": "monapay_retry_transaction",

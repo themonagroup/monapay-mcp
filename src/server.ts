@@ -5,11 +5,15 @@ import { verifyWebhookSignature, computeSignature } from './verify.js';
 import { SNIPPETS, SAMPLE_PAYLOAD } from './snippets.js';
 
 const DOCS = 'https://monapay.vn';
-const ENTITY = 'MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram và email, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
+const ENTITY = 'MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram, email và nhóm Zalo, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
 const emailAddress = z.string().trim().email().max(320);
 const emailEvent = z.enum(['TRANSACTION_IN', 'WEBHOOK_FAILED', 'VA_CREATED']);
 const emailEvents = z.array(emailEvent).min(1).max(3).refine((events) => events.includes('TRANSACTION_IN'), { message: 'events phải có TRANSACTION_IN' });
 const emailConfigId = z.string().min(8).describe('UUID cấu hình email');
+const zaloGroupId = z.string().min(8).describe('ID cấu hình nhóm Zalo do MONA Pay trả về (UUIDv6)');
+const zaloGroupTarget = z.string().regex(/^\d{10,25}$/, 'group_id phải có từ 10 đến 25 chữ số').describe('group_id gồm 10–25 chữ số, lấy từ MONA Account/PMS');
+const zaloGroupEvent = z.enum(['TRANSACTION_IN', 'CHECKOUT_PAID', 'WEBHOOK_FAILED', 'VA_CREATED']);
+const zaloGroupEvents = z.array(zaloGroupEvent).min(1).max(4);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dùng định dạng YYYY-MM-DD');
 const checkoutId = z.string().min(1).describe('ID phiên thanh toán');
 const idempotencyKey = z.string().min(1).max(255).optional().describe('Khoá chống tạo trùng; bỏ trống để MCP tự sinh UUID');
@@ -33,7 +37,7 @@ const responseData = (value: unknown): Record<string, any> => {
 };
 
 export function createServer(getClient: () => MonaPayClient = () => MonaPayClient.fromEnv()) {
-  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.4' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
+  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.5' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram, email và nhóm Zalo. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Nhóm Zalo phải có bot Gấu Mona; group_id gồm 10–25 chữ số lấy từ MONA Account/PMS; Zalo không parse Markdown nên chỉ dùng text thuần. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
   const run = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return err(e); } };
   const runBankStep = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return bankErr(e); } };
 
@@ -198,7 +202,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   } }, (args) => run((c) => c.generateQr(args)));
   server.registerTool('monapay_cancel_qr', { title: 'Huỷ mã QR', description: 'Huỷ một mã VietQR động đã tạo. / Cancel a dynamic QR.', inputSchema: { qr_code_id: z.string() } }, ({ qr_code_id }) => run((c) => c.cancelQr(qr_code_id)));
   server.registerTool('monapay_list_transactions', { title: 'Tra giao dịch tiền vào', description: 'Liệt kê giao dịch tiền vào theo tài khoản ảo, phân trang tối đa 100/trang; dùng để đối soát. / List incoming transactions.', inputSchema: { virtual_account_number: z.string().describe('Số tài khoản ảo (bắt buộc; lấy từ monapay_list_virtual_accounts)'), page: z.number().int().min(1).default(1), limit: z.number().int().min(1).max(100).default(20) } }, (q) => run((c) => c.listTransactions(q)));
-  server.registerTool('monapay_sandbox_transaction', { title: 'Tạo giao dịch thử (sandbox, không tốn tiền)', description: 'Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox.', inputSchema: { virtual_account_number: z.string().optional().describe('Số VA đã nối; bỏ trống = MONA Pay tự cấp VA sandbox SBX (không cần nối ngân hàng)'), amount: z.number().int().positive().default(10000), description: z.string().default('DH10234 test sandbox').describe('Nội dung chuyển khoản giả; ghi order_code của phiên checkout để phiên đó paid') } }, (body) => run((c) => c.sandboxTransaction(body)));
+  server.registerTool('monapay_sandbox_transaction', { title: 'Tạo giao dịch thử (sandbox, không tốn tiền)', description: 'Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email/Zalo, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox.', inputSchema: { virtual_account_number: z.string().optional().describe('Số VA đã nối; bỏ trống = MONA Pay tự cấp VA sandbox SBX (không cần nối ngân hàng)'), amount: z.number().int().positive().default(10000), description: z.string().default('DH10234 test sandbox').describe('Nội dung chuyển khoản giả; ghi order_code của phiên checkout để phiên đó paid') } }, (body) => run((c) => c.sandboxTransaction(body)));
   server.registerTool('monapay_list_webhooks', { title: 'Danh sách cấu hình webhook', description: 'Liệt kê webhook đã cấu hình. / List webhook configs.' }, () => run((c) => c.listWebhooks()));
   server.registerTool('monapay_create_webhook', { title: 'Tạo cấu hình webhook', description: 'Đăng ký URL nhận webhook khi có tiền vào; khuyến nghị auth_type HMAC_SHA256 + secret_key. / Create a webhook config.', inputSchema: {
     name: z.string(), webhook_url: z.string().url(), auth_type: z.enum(['NONE', 'API_KEY', 'HMAC_SHA256']).default('HMAC_SHA256'), secret_key: z.string().optional().describe('Secret ký HMAC hoặc giá trị API key'), api_key_name: z.string().optional().describe('Tên header khi auth_type=API_KEY, mặc định X-Webhook-Secret'),
@@ -286,6 +290,53 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
     description: 'Gỡ suppression sau khi đã sửa nguyên nhân; client tự chịu trách nhiệm khi gửi lại. / Remove a suppression after fixing its cause; the client accepts responsibility for future sends.',
     inputSchema: { email: emailAddress },
   }, ({ email }) => run((c) => c.removeEmailSuppression(email)));
+  server.registerTool('monapay_list_zalo_groups', {
+    title: 'Danh sách nhóm Zalo',
+    description: 'Liệt kê cấu hình thông báo nhóm Zalo; nhóm phải có bot Gấu Mona.',
+  }, () => run((c) => c.listZaloGroups()));
+  server.registerTool('monapay_create_zalo_group', {
+    title: 'Nối nhóm Zalo',
+    description: 'Nối nhóm có bot Gấu Mona bằng group_id 10–25 chữ số lấy từ MONA Account/PMS; Zalo không parse Markdown, nên template phải là text thuần.',
+    inputSchema: z.object({
+      group_id: zaloGroupTarget,
+      friendly_name: z.string().trim().min(1).max(255).describe('Tên dễ nhớ của nhóm'),
+      virtual_account_id: z.string().min(8).optional().describe('Chỉ nhận thông báo cho VA này; bỏ trống = mọi tài khoản'),
+      message_template: z.string().optional().describe('Text thuần; hỗ trợ {amount}, {description}, {virtual_account_number}, {transaction_code}, {transfer_date} và dạng {{...}}'),
+      events: zaloGroupEvents.default(['TRANSACTION_IN']).describe('Các sự kiện gửi vào nhóm Zalo'),
+      is_active: z.boolean().optional(),
+    }).strict(),
+  }, (body) => run((c) => c.createZaloGroup(body)));
+  server.registerTool('monapay_update_zalo_group', {
+    title: 'Sửa nhóm Zalo',
+    description: 'Sửa cấu hình nhóm có bot Gấu Mona; group_id lấy từ MONA Account/PMS và template dùng text thuần vì Zalo không parse Markdown.',
+    inputSchema: z.object({
+      id: zaloGroupId,
+      group_id: zaloGroupTarget.optional(),
+      friendly_name: z.string().trim().min(1).max(255).optional(),
+      virtual_account_id: z.string().min(8).optional(),
+      message_template: z.string().optional().describe('Template text thuần, không dùng Markdown'),
+      events: zaloGroupEvents.optional(),
+      is_active: z.boolean().optional(),
+    }).strict().refine(({ id: _id, ...body }) => Object.keys(body).length > 0, { message: 'Cần ít nhất một trường để cập nhật' }),
+  }, ({ id, ...body }) => run((c) => c.updateZaloGroup(id, body)));
+  server.registerTool('monapay_delete_zalo_group', {
+    title: 'Xoá nhóm Zalo',
+    description: 'Xoá một cấu hình thông báo nhóm Zalo.',
+    inputSchema: { id: zaloGroupId },
+  }, ({ id }) => run((c) => c.deleteZaloGroup(id)));
+  server.registerTool('monapay_test_zalo_group', {
+    title: 'Gửi thử vào nhóm Zalo',
+    description: 'Gửi tin thử text thuần; nhóm phải có bot Gấu Mona vì Zalo không parse Markdown.',
+    inputSchema: { id: zaloGroupId },
+  }, ({ id }) => run((c) => c.testZaloGroup(id)));
+  server.registerTool('monapay_zalo_group_logs', {
+    title: 'Lịch sử gửi nhóm Zalo',
+    description: 'Tra lịch sử gửi vào nhóm Zalo, lọc trạng thái thành công hoặc thất bại.',
+    inputSchema: {
+      limit: z.number().int().min(1).max(100).optional(),
+      status: z.enum(['ok', 'failed']).optional(),
+    },
+  }, (query) => run((c) => c.zaloGroupLogs(query)));
   server.registerTool('monapay_retry_transaction', { title: 'Gửi lại thông báo của một giao dịch', description: 'Gửi lại webhook hoặc Telegram cho giao dịch đã có. / Re-send webhook/Telegram for a transaction.', inputSchema: { transaction_id: z.string(), target_type: z.enum(['WEBHOOK', 'TELEGRAM']).default('WEBHOOK'), target_id: z.string().optional() } }, ({ transaction_id, ...body }) => run((c) => c.retryTransaction(transaction_id, body)));
   server.registerTool('monapay_generate_key', { title: 'Tạo API key (client_secret)', description: 'Sinh client_secret mới (hiện 1 lần) để dùng header X-Client-Secret. / Generate a client secret.', inputSchema: { name: z.string().default('mcp') } }, ({ name }) => run((c) => c.generateKey(name)));
   server.registerTool('monapay_rotate_key', { title: 'Xoay secret API key hiện tại', description: 'Dùng khi secret nghi lộ; xoay key hiện tại bằng X-Client-Secret. Sau khi xoay phải cập nhật MONAPAY_CLIENT_SECRET ở plugin/agent rồi khởi động lại. / Rotate the current API key secret after suspected exposure, then update MONAPAY_CLIENT_SECRET.' }, () => run(async (c) => ({
