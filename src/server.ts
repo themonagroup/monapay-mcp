@@ -1,6 +1,6 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { MonaPayClient } from './client.js';
+import { MonaPayClient, MonaPayError } from './client.js';
 import { verifyWebhookSignature, computeSignature } from './verify.js';
 import { SNIPPETS, SAMPLE_PAYLOAD } from './snippets.js';
 
@@ -8,14 +8,117 @@ const DOCS = 'https://monapay.vn';
 const ENTITY = 'MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook và Telegram — thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
 const text = (v: unknown) => ({ content: [{ type: 'text' as const, text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
 const err = (e: unknown) => ({ isError: true, content: [{ type: 'text' as const, text: (e as Error)?.message || String(e) }] });
+const bankErr = (e: unknown) => {
+  let message = (e as Error)?.message || String(e);
+  if (e instanceof MonaPayError && e.body && typeof e.body === 'object') {
+    const body = e.body as Record<string, unknown>;
+    const detail = body.detail;
+    if (typeof detail === 'string') message = detail;
+    else if (detail) message = JSON.stringify(detail);
+    else if (typeof body.message === 'string') message = body.message;
+  }
+  return err(`${message}\nGợi ý: xin OTP lại bằng cách gọi lại bước trước.`);
+};
+const responseData = (value: unknown): Record<string, any> => {
+  if (!value || typeof value !== 'object') return {};
+  const envelope = value as Record<string, unknown>;
+  return envelope.data && typeof envelope.data === 'object' ? envelope.data as Record<string, any> : {};
+};
 
 export function createServer(getClient: () => MonaPayClient = () => MonaPayClient.fromEnv()) {
-  const server = new McpServer({ name: 'monapay-mcp', version: '0.1.0' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để tạo QR, tra giao dịch, cấu hình và test webhook. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
+  const server = new McpServer({ name: 'monapay-mcp', version: '0.3.0' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo QR, tra giao dịch, cấu hình và test webhook. Không bao giờ tự đoán OTP; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
   const run = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return err(e); } };
+  const runBankStep = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return bankErr(e); } };
 
   server.registerTool('monapay_me', { title: 'Hồ sơ tài khoản MONA Pay', description: 'Lấy thông tin tài khoản MONA Pay đang đăng nhập (id, tên, trạng thái). / Get current MONA Pay client profile.' }, () => run((c) => c.me()));
+  server.registerTool('monapay_whoami', { title: 'Kiểm tra kết nối MONA Pay', description: 'Xác nhận client credentials đang hoạt động, trả tên tài khoản và gói hiện tại. / Verify connection and return account name and plan.' }, () => run((c) => c.whoami()));
   server.registerTool('monapay_list_bank_accounts', { title: 'Danh sách tài khoản ngân hàng đã nối', description: 'Liệt kê tài khoản ngân hàng (ACB…) đã nối vào MONA Pay. / List linked bank accounts.' }, () => run((c) => c.listBankAccounts()));
   server.registerTool('monapay_list_virtual_accounts', { title: 'Danh sách tài khoản ảo (VA)', description: 'Liệt kê tài khoản ảo thuộc một tài khoản ngân hàng. / List virtual accounts of a bank account.', inputSchema: { bank_account_id: z.string().describe('UUID tài khoản ngân hàng (lấy từ monapay_list_bank_accounts)') } }, ({ bank_account_id }) => run((c) => c.listVirtualAccounts(bank_account_id)));
+  server.registerTool('monapay_link_bank_start', {
+    title: 'Bắt đầu nối ngân hàng ACB và gửi OTP',
+    description: 'Bước 1/4: đăng ký tài khoản ACB + VA. OTP do ngân hàng gửi về điện thoại của người dùng; agent phải HỎI người dùng OTP rồi mới gọi tool xác thực, không được tự đoán. / Step 1/4: register the ACB account and VA. The OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling the verification tool and must never guess it.',
+    inputSchema: z.object({
+      account_number: z.union([z.string().regex(/^\d+$/, 'Chỉ gồm chữ số'), z.number().int().nonnegative()]).transform(Number).optional().describe('Số tài khoản thanh toán ACB; bắt buộc khi không có bank_account_id'),
+      phone_number: z.string().min(8).max(15).regex(/^\+?\d+$/, 'Số điện thoại chỉ gồm chữ số, có thể bắt đầu bằng +').optional().describe('Số điện thoại đăng ký với ACB và nhận OTP; bắt buộc khi không có bank_account_id'),
+      customer_type: z.enum(['PERS', 'ORG']).describe('PERS = cá nhân, ORG = tổ chức'),
+      prefix: z.string().min(1).max(20).regex(/^[A-Za-z0-9]+$/, 'Prefix chỉ gồm chữ hoặc số không dấu').describe('Đầu số VA đã đăng ký với ACB, ví dụ LOC'),
+      identifier: z.string().min(1).max(10).regex(/^[A-Za-z0-9]+$/, 'Tối đa 10 ký tự chữ hoặc số không dấu').describe('Nội dung định danh VA, tối đa 10 ký tự không dấu'),
+      description: z.string().max(255).optional().describe('Diễn giải đăng ký VA'),
+      bank_account_id: z.string().uuid().optional().describe('UUID tài khoản ACB đã nối; khi có, API bỏ qua account_number và phone_number'),
+    }).superRefine((value, ctx) => {
+      if (!value.bank_account_id && value.account_number === undefined) ctx.addIssue({ code: 'custom', path: ['account_number'], message: 'Cần account_number hoặc bank_account_id' });
+      if (!value.bank_account_id && !value.phone_number) ctx.addIssue({ code: 'custom', path: ['phone_number'], message: 'Cần phone_number khi không có bank_account_id' });
+    }),
+  }, ({ account_number, phone_number, customer_type, prefix, identifier, description, bank_account_id }) => runBankStep(async (c) => {
+    const response = await c.registerVirtualAccount({
+      ...(bank_account_id ? { bank_account_id } : { account_number, phone_number }),
+      customer_type,
+      virtual_account_info: {
+        virtual_account_prefix_code: prefix,
+        virtual_account_content: identifier,
+        ...(description ? { virtual_account_explain: description } : {}),
+      },
+      user_agreement: true,
+    });
+    const data = responseData(response);
+    const requestId = data.acb_request?.id || data.acb_request_id;
+    if (!requestId) throw new Error('MONA Pay không trả acb_request_id cho bước xác thực OTP');
+    return {
+      success: true,
+      acb_request_id: requestId,
+      bank_account: data,
+      next_step: `Ngân hàng đã gửi OTP về ${phone_number ? `số ${phone_number}` : 'số điện thoại đăng ký với ACB'}. Hỏi người dùng mã OTP rồi gọi monapay_link_bank_verify_otp.`,
+    };
+  }));
+  server.registerTool('monapay_link_bank_verify_otp', {
+    title: 'Xác thực OTP và tạo tài khoản ảo ACB',
+    description: 'Bước 2/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 2/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP.',
+    inputSchema: {
+      acb_request_id: z.string().uuid().describe('ID yêu cầu ACB trả về từ monapay_link_bank_start'),
+      code: z.string().min(4).max(10).regex(/^\d+$/, 'OTP chỉ gồm chữ số').describe('OTP do người dùng cung cấp sau khi nhận từ ACB'),
+    },
+  }, ({ acb_request_id, code }) => runBankStep(async (c) => {
+    const response = await c.verifyVirtualAccount(acb_request_id, code);
+    const virtualAccount = responseData(response);
+    if (!virtualAccount.id) throw new Error('MONA Pay không trả virtual_account_id sau khi xác thực OTP');
+    return {
+      success: true,
+      virtual_account_id: virtualAccount.id,
+      virtual_account: virtualAccount,
+      next_step: `Gọi monapay_notification_register với virtual_account_id ${virtualAccount.id} để đăng ký nhận thông báo giao dịch.`,
+    };
+  }));
+  server.registerTool('monapay_notification_register', {
+    title: 'Đăng ký thông báo tiền vào và gửi OTP lần 2',
+    description: 'Bước 3/4: đăng ký nhận thông báo giao dịch tức thì. OTP lần 2 do ngân hàng gửi về điện thoại của người dùng; agent phải HỎI người dùng rồi mới gọi tool xác thực, không được tự đoán. / Step 3/4: register real-time transaction notifications. The second OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before verification and must never guess it.',
+    inputSchema: { virtual_account_id: z.string().uuid().describe('ID VA trả về từ monapay_link_bank_verify_otp') },
+  }, ({ virtual_account_id }) => runBankStep(async (c) => {
+    const response = await c.registerNotification(virtual_account_id);
+    const data = responseData(response);
+    const requestId = data.acb_request?.id || data.acb_request_id;
+    if (!requestId) throw new Error('MONA Pay không trả acb_request_id cho bước xác thực OTP lần 2');
+    return {
+      success: true,
+      acb_request_id: requestId,
+      notification: data,
+      next_step: 'ACB đã gửi OTP lần 2 về điện thoại. Hỏi người dùng mã OTP rồi gọi monapay_notification_verify_otp.',
+    };
+  }));
+  server.registerTool('monapay_notification_verify_otp', {
+    title: 'Xác thực OTP lần 2 và hoàn tất nhận tiền',
+    description: 'Bước 4/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 4/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP.',
+    inputSchema: {
+      acb_request_id: z.string().uuid().describe('ID yêu cầu ACB trả về từ monapay_notification_register'),
+      code: z.string().min(4).max(10).regex(/^\d+$/, 'OTP chỉ gồm chữ số').describe('OTP lần 2 do người dùng cung cấp sau khi nhận từ ACB'),
+    },
+  }, ({ acb_request_id, code }) => runBankStep(async (c) => {
+    const response = await c.verifyNotification(acb_request_id, code);
+    return {
+      success: true,
+      data: responseData(response),
+      next_step: 'Hoàn tất: tiền vào sẽ có webhook.',
+    };
+  }));
   server.registerTool('monapay_create_qr', { title: 'Tạo VietQR động cho đơn hàng', description: 'Tạo mã VietQR động điền sẵn số tiền + nội dung cho một đơn hàng qua ACB. Khách quét là tiền vào tài khoản ảo, MONA Pay bắn webhook. / Create a dynamic VietQR for an order.', inputSchema: {
     orderId: z.string().describe('Mã đơn hàng của hệ thống anh chị'), amount: z.number().int().min(0).max(1_000_000_000).describe('Số tiền VND (số nguyên)'), description: z.string().max(255).optional().describe('Nội dung chuyển khoản, nên chứa mã đơn'),
     ownerNumber: z.string().describe('Số tài khoản ACB nhận tiền'), ownerType: z.enum(['PER', 'ORG']).default('PER').describe('PER cá nhân / ORG doanh nghiệp'), merchantId: z.string().describe('Mã merchant (hiển thị ở dashboard mục Tạo QR)'), terminalId: z.string().default('WEB'),
@@ -44,6 +147,6 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   server.registerResource('monapay-llms', 'monapay://docs/llms', { title: 'MONA Pay llms.txt', description: 'Mục lục tài liệu MONA Pay dạng máy đọc', mimeType: 'text/plain' }, async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: await (await fetch(`${DOCS}/llms.txt`)).text() }] }));
   server.registerResource('monapay-doc', new ResourceTemplate('monapay://docs/{+slug}', { list: undefined }), { title: 'Tài liệu MONA Pay (markdown)', description: 'Một trang docs dạng markdown, vd monapay://docs/webhooks/tich-hop-webhook', mimeType: 'text/markdown' }, async (uri, { slug }) => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: await (await fetch(`${DOCS}/docs/${slug}.md`)).text() }] }));
 
-  server.registerPrompt('integrate-monapay', { title: 'Tích hợp MONA Pay vào dự án', description: 'Hướng dẫn agent tích hợp nhận tiền chuyển khoản tự động bằng MONA Pay theo 6 bước', argsSchema: { language: z.string().optional().describe('php | node | python | khác'), framework: z.string().optional() } }, ({ language, framework }) => ({ messages: [{ role: 'user', content: { type: 'text', text: `Tích hợp MONA Pay (${ENTITY}) vào dự án ${framework || language || 'hiện tại'}:\n1. Gọi tool monapay_me để xác nhận tài khoản; nếu chưa có key, monapay_generate_key.\n2. Xem tài khoản ngân hàng + VA: monapay_list_bank_accounts → monapay_list_virtual_accounts (chưa nối ACB thì hướng dẫn người dùng vào https://my.monapay.vn nối 4 bước, OTP 2 lần).\n3. Tạo endpoint webhook HTTPS trong dự án bằng monapay_generate_webhook_snippet(language="${language || 'php'}"): verify HMAC, chống trùng theo transaction_code, trả 200 ngay, xử lý đơn async.\n4. Đăng ký webhook: monapay_create_webhook(auth_type=HMAC_SHA256, secret_key=<sinh ngẫu nhiên ≥32 ký tự>).\n5. Bắn thử: monapay_test_webhook; kiểm bằng monapay_webhook_logs; sai chữ ký thì dùng monapay_verify_signature để đối chiếu.\n6. Với mỗi đơn cần thanh toán: monapay_create_qr(orderId, amount, description="DH<order>") rồi hiển thị QR cho khách; đối soát bằng monapay_list_transactions.\nTài liệu: ${DOCS}/docs (bản .md: thêm đuôi .md), ${DOCS}/llms.txt. Miễn phí hoàn toàn, tiền không qua MONA Pay.` } }] }));
+  server.registerPrompt('integrate-monapay', { title: 'Tích hợp MONA Pay vào dự án', description: 'Hướng dẫn agent tích hợp nhận tiền chuyển khoản tự động bằng MONA Pay theo 6 bước', argsSchema: { language: z.string().optional().describe('php | node | python | khác'), framework: z.string().optional() } }, ({ language, framework }) => ({ messages: [{ role: 'user', content: { type: 'text', text: `Tích hợp MONA Pay (${ENTITY}) vào dự án ${framework || language || 'hiện tại'}:\n1. Gọi tool monapay_whoami để xác nhận tài khoản và xem next_step; nếu chưa có key, monapay_generate_key.\n2. Nếu chưa nối ACB, làm ngay trong chat bằng monapay_link_bank_start → HỎI người dùng OTP → monapay_link_bank_verify_otp → monapay_notification_register → HỎI OTP lần 2 → monapay_notification_verify_otp. Không bao giờ tự đoán OTP.\n3. Tạo endpoint webhook HTTPS trong dự án bằng monapay_generate_webhook_snippet(language="${language || 'php'}"): verify HMAC, chống trùng theo transaction_code, trả 200 ngay, xử lý đơn async.\n4. Đăng ký webhook: monapay_create_webhook(auth_type=HMAC_SHA256, secret_key=<sinh ngẫu nhiên ≥32 ký tự>).\n5. Bắn thử: monapay_test_webhook; kiểm bằng monapay_webhook_logs; sai chữ ký thì dùng monapay_verify_signature để đối chiếu.\n6. Với mỗi đơn cần thanh toán: monapay_create_qr(orderId, amount, description="DH<order>") rồi hiển thị QR cho khách; đối soát bằng monapay_list_transactions.\nTài liệu: ${DOCS}/docs (bản .md: thêm đuôi .md), ${DOCS}/llms.txt. Miễn phí hoàn toàn, tiền không qua MONA Pay.` } }] }));
   return server;
 }

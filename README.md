@@ -16,17 +16,17 @@ Biến môi trường:
 
 | Biến | Bắt buộc | Ý nghĩa |
 |---|---|---|
-| `MONAPAY_USERNAME` | có | tên đăng nhập MONA Pay |
-| `MONAPAY_PASSWORD` | có | mật khẩu |
-| `MONAPAY_CLIENT_SECRET` | nên có | client_secret (API key) sinh trong dashboard hoặc tool `monapay_generate_key`, dùng cho lệnh ghi |
+| `MONAPAY_CLIENT_ID` | có (khuyến nghị) | client_id của API key tạo trong dashboard |
+| `MONAPAY_CLIENT_SECRET` | có (khuyến nghị) | client_secret hiện một lần; dùng lấy OAuth token và ký quyền cho lệnh ghi |
+| `MONAPAY_USERNAME` | cách cũ | tên đăng nhập MONA Pay; chỉ dùng khi không có client credentials |
+| `MONAPAY_PASSWORD` | cách cũ | mật khẩu; tài khoản bật 2FA không dùng được cách này |
 | `MONAPAY_BASE_URL` | không | mặc định `https://api.monapay.vn` |
 
 ### Claude Code
 
 ```bash
 claude mcp add monapay \
-  -e MONAPAY_USERNAME=ten_dang_nhap \
-  -e MONAPAY_PASSWORD=mat_khau \
+  -e MONAPAY_CLIENT_ID=client_id_cua_anh_chi \
   -e MONAPAY_CLIENT_SECRET=client_secret_cua_anh_chi \
   -- npx -y monapay-mcp
 ```
@@ -39,7 +39,7 @@ claude mcp add monapay \
     "monapay": {
       "command": "npx",
       "args": ["-y", "monapay-mcp"],
-      "env": { "MONAPAY_USERNAME": "ten_dang_nhap", "MONAPAY_PASSWORD": "mat_khau", "MONAPAY_CLIENT_SECRET": "client_secret" }
+      "env": { "MONAPAY_CLIENT_ID": "client_id", "MONAPAY_CLIENT_SECRET": "client_secret" }
     }
   }
 }
@@ -51,14 +51,35 @@ claude mcp add monapay \
 [mcp_servers.monapay]
 command = "npx"
 args = ["-y", "monapay-mcp"]
-env = { MONAPAY_USERNAME = "ten_dang_nhap", MONAPAY_PASSWORD = "mat_khau", MONAPAY_CLIENT_SECRET = "client_secret" }
+env = { MONAPAY_CLIENT_ID = "client_id", MONAPAY_CLIENT_SECRET = "client_secret" }
 ```
+
+### Claude Desktop (`claude_desktop_config.json`)
+
+```json
+{
+  "mcpServers": {
+    "monapay": {
+      "command": "npx",
+      "args": ["-y", "monapay-mcp"],
+      "env": { "MONAPAY_CLIENT_ID": "client_id", "MONAPAY_CLIENT_SECRET": "client_secret" }
+    }
+  }
+}
+```
+
+### Cách cũ: username/password
+
+Nếu chưa tạo API key, có thể đặt `MONAPAY_USERNAME` và `MONAPAY_PASSWORD`. Nên chuyển sang `client_id`/`client_secret`; tài khoản bật 2FA không login bằng mật khẩu được.
 
 ## Tool
 
 | Tool | Làm gì |
 |---|---|
+| `monapay_whoami` | kiểm tra kết nối, đếm bank/VA/webhook và trả bước tiếp theo |
 | `monapay_me` | hồ sơ tài khoản đang đăng nhập |
+| `monapay_link_bank_start` · `monapay_link_bank_verify_otp` | nối tài khoản ACB và tạo VA bằng OTP lần 1 |
+| `monapay_notification_register` · `monapay_notification_verify_otp` | bật thông báo tiền vào bằng OTP lần 2 |
 | `monapay_list_bank_accounts` · `monapay_list_virtual_accounts` | tài khoản ngân hàng đã nối, tài khoản ảo (VA) |
 | `monapay_create_qr` · `monapay_cancel_qr` | tạo / huỷ VietQR động cho đơn hàng |
 | `monapay_list_transactions` | tra giao dịch tiền vào theo VA (đối soát) |
@@ -77,6 +98,17 @@ Resource: `monapay://docs/llms` (mục lục tài liệu máy đọc), `monapay:
 
 Agent sẽ: gọi `monapay_me` → lấy code mẫu bằng `monapay_generate_webhook_snippet(language="php")` → viết endpoint vào dự án → `monapay_create_webhook(auth_type="HMAC_SHA256", secret_key=...)` → `monapay_test_webhook` → đọc `monapay_webhook_logs` để chắc endpoint trả 200 → dùng `monapay_create_qr` cho từng đơn.
 
+## Nối ngân hàng bằng OTP (4 bước)
+
+OTP do ACB gửi về số điện thoại đăng ký của chủ tài khoản. Agent phải hỏi người dùng ở bước 2 và bước 4, tuyệt đối không tự đoán OTP.
+
+1. Gọi `monapay_link_bank_start` với số tài khoản ACB, số điện thoại, loại khách hàng, prefix VA và mã định danh. Tool trả `acb_request_id`; ACB gửi OTP lần 1.
+2. Hỏi người dùng OTP rồi gọi `monapay_link_bank_verify_otp`. Tool trả `virtual_account_id` và số VA.
+3. Gọi `monapay_notification_register` với `virtual_account_id`; ACB gửi OTP lần 2.
+4. Hỏi người dùng OTP lần 2 rồi gọi `monapay_notification_verify_otp`. Từ đây tiền vào sẽ được MONA Pay chuyển tiếp qua webhook đã cấu hình.
+
+Nếu OTP sai hoặc hết hạn, gọi lại bước trước để ACB gửi mã mới.
+
 ## Chữ ký webhook
 
 `X-Mona-Signature: sha256=<hex>` với `hex = HMAC-SHA256(secret, "<X-Mona-Timestamp>.<raw_body>")`, từ chối nếu timestamp lệch quá 300 giây, so sánh constant-time. `transaction_code` không đổi qua mọi lần gửi lại, dùng làm khoá chống trùng. Chi tiết: https://monapay.vn/docs/webhooks/bao-mat
@@ -85,7 +117,7 @@ Agent sẽ: gọi `monapay_me` → lấy code mẫu bằng `monapay_generate_web
 
 ```bash
 npm install && npm test        # build + node --test
-MONAPAY_USERNAME=... MONAPAY_PASSWORD=... npm run smoke   # gọi thật vài tool GET
+MONAPAY_CLIENT_ID=... MONAPAY_CLIENT_SECRET=... npm run smoke   # gọi thật vài tool GET
 ```
 
 Tài liệu: https://monapay.vn/docs · llms.txt: https://monapay.vn/llms.txt · OpenAPI: https://monapay.vn/openapi.json · Hotline 1900 636 648 · info@themona.global

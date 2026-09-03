@@ -6,13 +6,86 @@ function mockFetch(log) {
   return async (url, init) => {
     log.push({ url: String(url), method: init?.method, headers: init?.headers, body: init?.body });
     const u = String(url);
+    if (u.endsWith('/oauth/token')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { access_token: 'oauth' + (++calls), expires_in: 3600 } }), { status: 200 });
     if (u.endsWith('/client/login')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { access_token: 'tok' + (++calls), expires_in: 86400 } }), { status: 200 });
-    if (u.includes('/client/me')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { username: 'x' } }), { status: 200 });
+    if (u.includes('/client/me')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { name: 'Shop X', username: 'x' } }), { status: 200 });
+    if (u.includes('/billing/usage')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { plan_name: 'Free' } }), { status: 200 });
+    if (u.includes('/client/bank-accounts')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { data: [], total: 0 } }), { status: 200 });
     if (u.includes('/expired')) return new Response(JSON.stringify({ detail: 'Invalid token' }), { status: calls < 2 ? 401 : 200 });
-    if (u.includes('/client-webhooks')) return new Response(JSON.stringify({ success: true, message: 'ok', data: { id: 'w1' } }), { status: 200 });
+    if (u.includes('/client-webhooks')) return new Response(JSON.stringify({ success: true, message: 'ok', data: init?.method === 'GET' ? [] : { id: 'w1' } }), { status: 200 });
     return new Response(JSON.stringify({ success: true, message: 'ok', data: null }), { status: 200 });
   };
 }
+test('client credentials dùng OAuth, cache token và ưu tiên trong fromEnv', async () => {
+  const log = [];
+  const c = MonaPayClient.fromEnv({
+    MONAPAY_CLIENT_ID: 'cid', MONAPAY_CLIENT_SECRET: 'secret',
+    MONAPAY_USERNAME: 'legacy-user', MONAPAY_PASSWORD: 'legacy-pass',
+  });
+  c.fetchImpl = mockFetch(log);
+  await c.me(); await c.me();
+  const oauth = log.filter((l) => l.url.endsWith('/oauth/token'));
+  assert.equal(oauth.length, 1);
+  assert.deepEqual(JSON.parse(oauth[0].body), {
+    grant_type: 'client_credentials', client_id: 'cid', client_secret: 'secret',
+  });
+  assert.equal(log.some((l) => l.url.endsWith('/client/login')), false);
+});
+test('whoami trả username + plan và chỉ lấy một OAuth token', async () => {
+  const log = [];
+  const c = new MonaPayClient({ clientId: 'cid', clientSecret: 'secret', baseUrl: 'https://x.test', fetchImpl: mockFetch(log) });
+  const result = await c.whoami();
+  assert.deepEqual(result.data, {
+    name: 'Shop X', username: 'x', plan: 'Free',
+    bank_accounts: 0, virtual_accounts: 0, webhooks: 0,
+    next_step: 'Nối ngân hàng: hỏi người dùng số tài khoản ACB + số điện thoại rồi gọi monapay_link_bank_start',
+  });
+  assert.equal(log.filter((l) => l.url.endsWith('/oauth/token')).length, 1);
+});
+test('5 method nối ngân hàng dựng đúng endpoint và body', async () => {
+  const log = [];
+  const c = new MonaPayClient({ clientId: 'cid', clientSecret: 'secret', baseUrl: 'https://x.test', fetchImpl: mockFetch(log) });
+  await c.registerVirtualAccount({
+    account_number: 123456789,
+    phone_number: '0901234567',
+    customer_type: 'PERS',
+    virtual_account_info: { virtual_account_prefix_code: 'LOC', virtual_account_content: 'DH10234' },
+    user_agreement: true,
+  });
+  await c.verifyVirtualAccount('request/id', '123456');
+  await c.registerNotification('va/id');
+  await c.verifyNotification('notification/id', '654321');
+  await c.notificationDetail('va/id');
+
+  const apiCalls = log.filter((item) => !item.url.endsWith('/oauth/token'));
+  assert.equal(apiCalls[0].url, 'https://x.test/api/v1/acb/virtual-account/registration');
+  assert.equal(JSON.parse(apiCalls[0].body).virtual_account_info.virtual_account_prefix_code, 'LOC');
+  assert.ok(apiCalls[1].url.endsWith('/api/v1/acb/request%2Fid/virtual-account/verification'));
+  assert.deepEqual(JSON.parse(apiCalls[1].body), { code: '123456' });
+  assert.ok(apiCalls[2].url.endsWith('/api/v1/acb/va%2Fid/notification/registration'));
+  assert.deepEqual(JSON.parse(apiCalls[2].body), { receive_noti_realtime: true });
+  assert.ok(apiCalls[3].url.endsWith('/api/v1/acb/notification%2Fid/notification/verification'));
+  assert.ok(apiCalls[4].url.endsWith('/api/v1/acb/va%2Fid/notification/details'));
+  assert.equal(apiCalls[4].method, 'GET');
+});
+test('whoami đếm VA và hướng dẫn tạo webhook khi bank đã nối', async () => {
+  const fetchImpl = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === '/api/v1/oauth/token') return new Response(JSON.stringify({ success: true, data: { access_token: 'token' } }), { status: 200 });
+    if (path === '/api/v1/client/me') return new Response(JSON.stringify({ success: true, data: { name: 'Shop', username: 'shop' } }), { status: 200 });
+    if (path === '/api/v1/billing/usage') return new Response(JSON.stringify({ success: true, data: { plan_code: 'FREE' } }), { status: 200 });
+    if (path === '/api/v1/client/bank-accounts') return new Response(JSON.stringify({ success: true, data: { data: [{ id: 'bank-1' }], total: 1 } }), { status: 200 });
+    if (path === '/api/v1/client-webhooks') return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+    if (path.endsWith('/virtual-account/retrieve')) return new Response(JSON.stringify({ success: true, data: { data: [{ id: 'va-1' }], total: 2 } }), { status: 200 });
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  const c = new MonaPayClient({ clientId: 'cid', clientSecret: 'secret', baseUrl: 'https://x.test', fetchImpl });
+  const result = await c.whoami();
+  assert.equal(result.data.bank_accounts, 1);
+  assert.equal(result.data.virtual_accounts, 2);
+  assert.equal(result.data.webhooks, 0);
+  assert.equal(result.data.next_step, 'Tạo webhook: gọi monapay_create_webhook để nhận thông báo tiền vào');
+});
 test('login 1 lần rồi cache token, GET không gửi X-Client-Secret', async () => {
   const log = []; const c = new MonaPayClient({ username: 'u', password: 'p', clientSecret: 's', baseUrl: 'https://x.test/', fetchImpl: mockFetch(log) });
   await c.me(); await c.me();
