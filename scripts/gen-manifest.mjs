@@ -5,7 +5,7 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 const tools = [];
 const re = /registerTool\('([a-z_]+)',\s*\{\s*title:\s*'((?:[^'\\]|\\.)*)',\s*description:\s*'((?:[^'\\]|\\.)*)'/g;
 let m; while ((m = re.exec(src))) tools.push({ name: m[1], title: m[2].replace(/\\'/g, "'"), description: m[3].replace(/\\'/g, "'") });
-const scopeOf = (n) => /list|logs|stats|whoami|me$|verify_signature|snippet/.test(n) ? 'read' : /qr/.test(n) ? 'qr:write' : /virtual_account|link_bank|notification/.test(n) ? 'va:write' : /webhook/.test(n) ? 'webhooks:write' : /email/.test(n) ? 'email:write' : 'write';
+const scopeOf = (n) => /list|logs|stats|whoami|me$|^monapay_get_|verify_signature|snippet/.test(n) ? 'read' : /checkout/.test(n) ? 'checkout:write' : /payment_profile/.test(n) ? 'profile:write' : /qr/.test(n) ? 'qr:write' : /virtual_account|link_bank|notification/.test(n) ? 'va:write' : /webhook/.test(n) ? 'webhooks:write' : /email/.test(n) ? 'email:write' : 'write';
 const manifest = {
   schema_version: '1', name: pkg.name, version: pkg.version, description: pkg.description,
   product: { name: 'MONA Pay', group: 'monacloud', vendor: 'The MONA Group', url: 'https://monapay.vn', docs: 'https://monapay.vn/docs/ai-agent.md', llms: 'https://monapay.vn/llms.txt', openapi: 'https://monapay.vn/openapi.json' },

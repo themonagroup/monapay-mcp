@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "name": "monapay-mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group.",
   "product": {
     "name": "MONA Pay",
@@ -86,6 +86,42 @@
       "title": "Xác thực OTP lần 2 và hoàn tất nhận tiền",
       "description": "Bước 4/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 4/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP.",
       "scope": "va:write"
+    },
+    {
+      "name": "monapay_get_payment_profile",
+      "title": "Lấy hồ sơ trang thanh toán",
+      "description": "Lấy tên shop, nhận diện và tài khoản mặc định dùng cho trang thanh toán. / Get the hosted-checkout payment profile.",
+      "scope": "read"
+    },
+    {
+      "name": "monapay_set_payment_profile",
+      "title": "Thiết lập hồ sơ trang thanh toán",
+      "description": "Tạo hoặc cập nhật tên shop, nhận diện và tài khoản nhận tiền mặc định trước khi tạo checkout. Secret ký redirect chỉ được API trả một lần. / Create or update the hosted-checkout payment profile.",
+      "scope": "profile:write"
+    },
+    {
+      "name": "monapay_create_checkout",
+      "title": "Tạo link thu tiền",
+      "description": "Tạo link thu tiền, đưa link cho khách hoặc chuyển hướng checkout; đợi webhook CHECKOUT_PAID trước khi giao hàng. / Create a hosted checkout link; wait for CHECKOUT_PAID before fulfilment.",
+      "scope": "checkout:write"
+    },
+    {
+      "name": "monapay_get_checkout",
+      "title": "Lấy một phiên thanh toán",
+      "description": "Lấy trạng thái và chi tiết checkout theo ID; nên kiểm tra server-side trước khi giao hàng. / Get a checkout by ID.",
+      "scope": "read"
+    },
+    {
+      "name": "monapay_list_checkouts",
+      "title": "Danh sách phiên thanh toán",
+      "description": "Liệt kê checkout theo trạng thái, mã đơn, khoảng ngày và phân trang. / List and filter hosted checkouts.",
+      "scope": "read"
+    },
+    {
+      "name": "monapay_cancel_checkout",
+      "title": "Huỷ phiên thanh toán",
+      "description": "Huỷ checkout đang pending; checkout đã paid, expired hoặc cancelled không thể huỷ lại. / Cancel a pending checkout.",
+      "scope": "checkout:write"
     },
     {
       "name": "monapay_create_qr",

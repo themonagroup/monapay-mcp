@@ -220,3 +220,47 @@ test('11 tool email có schema chặt và ánh xạ đúng API', async () => {
     assert.equal(call.headers['X-Client-Secret'], 'client-secret');
   }
 });
+
+test('6 tool checkout và payment profile có schema chặt, ánh xạ đúng API', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const parsed = new URL(String(url));
+    calls.push({ path: parsed.pathname, search: parsed.search, method: init?.method, body: init?.body, headers: init?.headers });
+    if (parsed.pathname === '/api/v1/oauth/token') return response({ success: true, data: { access_token: 'token', expires_in: 3600 } });
+    return response({ success: true, data: { id: 'checkout-id', checkout_url: 'https://pay.monapay.vn/c/token' } });
+  };
+
+  await withMcp(fetchImpl, async (client) => {
+    const listed = await client.listTools();
+    const names = [
+      'monapay_get_payment_profile', 'monapay_set_payment_profile', 'monapay_create_checkout',
+      'monapay_get_checkout', 'monapay_list_checkouts', 'monapay_cancel_checkout',
+    ];
+    for (const name of names) assert.ok(listed.tools.some((tool) => tool.name === name), `${name} phải được đăng ký`);
+    const createTool = listed.tools.find((tool) => tool.name === 'monapay_create_checkout');
+    assert.match(createTool.description, /Tạo link thu tiền/);
+    assert.match(createTool.description, /CHECKOUT_PAID/);
+    assert.equal(createTool.inputSchema.properties.amount.minimum, 1000);
+    assert.equal(createTool.inputSchema.properties.amount.maximum, 1000000000);
+    assert.equal(createTool.inputSchema.properties.order_code.pattern, '^[A-Za-z0-9_-]+$');
+
+    await client.callTool({ name: 'monapay_get_payment_profile', arguments: {} });
+    await client.callTool({ name: 'monapay_set_payment_profile', arguments: { display_name: 'Shop MONA', accent_color: '#971B38' } });
+    await client.callTool({ name: 'monapay_create_checkout', arguments: { amount: 250000, order_code: 'DH_10234', return_url: 'https://shop.test/return', idempotency_key: 'create-key' } });
+    await client.callTool({ name: 'monapay_get_checkout', arguments: { checkout_id: 'checkout/id' } });
+    await client.callTool({ name: 'monapay_list_checkouts', arguments: { status: 'pending', order_code: 'DH_10234', page: 2, limit: 50 } });
+    await client.callTool({ name: 'monapay_cancel_checkout', arguments: { checkout_id: 'checkout/id', idempotency_key: 'cancel-key' } });
+  });
+
+  const apiCalls = calls.filter((call) => call.path !== '/api/v1/oauth/token');
+  assert.equal(apiCalls.length, 6);
+  assert.equal(apiCalls[0].path, '/api/v1/payment-profile');
+  assert.equal(apiCalls[1].method, 'PUT');
+  assert.deepEqual(JSON.parse(apiCalls[2].body), { amount: 250000, order_code: 'DH_10234', return_url: 'https://shop.test/return' });
+  assert.equal(apiCalls[2].headers['Idempotency-Key'], 'create-key');
+  assert.equal(apiCalls[3].path, '/api/v1/checkouts/checkout%2Fid');
+  assert.match(apiCalls[4].search, /status=pending/);
+  assert.match(apiCalls[4].search, /page=2/);
+  assert.equal(apiCalls[5].path, '/api/v1/checkouts/checkout%2Fid/cancel');
+  assert.equal(apiCalls[5].headers['Idempotency-Key'], 'cancel-key');
+});

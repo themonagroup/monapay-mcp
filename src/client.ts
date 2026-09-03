@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 /** HTTP client MONA Pay: OAuth/login + cache token, tự refresh khi 401, gửi X-Client-Secret cho lệnh ghi. Zero-dependency (fetch built-in Node ≥18). */
 type CommonOptions = { baseUrl?: string; fetchImpl?: typeof fetch };
 export type MonaPayOptions = CommonOptions & {
@@ -41,6 +43,43 @@ export type EmailLogQuery = {
   limit?: number;
 };
 export type EmailStatsQuery = { from_date?: string; to_date?: string };
+export type CheckoutCreateBody = {
+  amount: number;
+  order_code: string;
+  return_url: string;
+  description?: string;
+  cancel_url?: string;
+  payer_email?: string;
+  payer_name?: string;
+  expires_in?: number;
+  metadata?: Record<string, unknown>;
+  virtual_account_id?: string;
+};
+export type CheckoutQuery = {
+  status?: 'pending' | 'paid' | 'expired' | 'cancelled';
+  order_code?: string;
+  from_date?: string;
+  to_date?: string;
+  page?: number;
+  limit?: number;
+};
+export type PaymentProfileBody = {
+  display_name?: string;
+  logo_url?: string | null;
+  hotline?: string | null;
+  support_email?: string | null;
+  default_bank_account_id?: string;
+  default_virtual_account_id?: string | null;
+  va_prefix?: string;
+  owner_number?: string;
+  owner_type?: 'PER' | 'ORG';
+  merchant_id?: string;
+  terminal_id?: string;
+  beneficiary_name?: string;
+  accent_color?: string | null;
+  locale?: 'vi' | 'en';
+  show_mona_badge?: boolean;
+};
 export class MonaPayError extends Error {
   constructor(message: string, public status: number, public body?: unknown) { super(message); this.name = 'MonaPayError'; }
 }
@@ -83,15 +122,15 @@ export class MonaPayClient {
   }
   private async ensureToken(): Promise<string> { if (!this.token || Date.now() > this.tokenExp) await this.login(); return this.token as string; }
   /** Gọi API với envelope; retry 1 lần khi 401 (token hết hạn). */
-  async request<T = unknown>(method: string, path: string, body?: unknown, query?: Record<string, string | number | undefined>, _retry = true): Promise<Envelope<T>> {
+  async request<T = unknown>(method: string, path: string, body?: unknown, query?: Record<string, string | number | undefined>, _retry = true, requestHeaders: Record<string, string> = {}): Promise<Envelope<T>> {
     const tok = await this.ensureToken();
     const url = new URL(this.baseUrl + path);
     if (query) for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
-    const headers: Record<string, string> = { Authorization: `Bearer ${tok}`, Accept: 'application/json' };
+    const headers: Record<string, string> = { ...requestHeaders, Authorization: `Bearer ${tok}`, Accept: 'application/json' };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (method !== 'GET' && this.opts.clientSecret) headers['X-Client-Secret'] = this.opts.clientSecret;
     const r = await this.fetchImpl(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-    if (r.status === 401 && _retry) { this.token = null; return this.request<T>(method, path, body, query, false); }
+    if (r.status === 401 && _retry) { this.token = null; return this.request<T>(method, path, body, query, false, requestHeaders); }
     const j = (await r.json().catch(() => ({}))) as Envelope<T> & { detail?: string };
     if (!r.ok || j?.success === false) { const d = (j as any)?.detail; const msg = typeof d === 'string' ? d : d ? JSON.stringify(d) : (j?.message || 'lỗi'); throw new MonaPayError(`MONA Pay ${method} ${path} → ${r.status}: ${msg}`, r.status, j); }
     return j;
@@ -158,6 +197,12 @@ export class MonaPayClient {
   registerNotification(vaId: string, body: NotificationRegistrationBody = { receive_noti_realtime: true }) { return this.request('POST', `/api/v1/acb/${encodeURIComponent(vaId)}/notification/registration`, body); }
   verifyNotification(requestId: string, code: string) { return this.request('POST', `/api/v1/acb/${encodeURIComponent(requestId)}/notification/verification`, { code }); }
   notificationDetail(vaId: string) { return this.request('GET', `/api/v1/acb/${encodeURIComponent(vaId)}/notification/details`); }
+  getPaymentProfile() { return this.request('GET', '/api/v1/payment-profile'); }
+  setPaymentProfile(body: PaymentProfileBody) { return this.request('PUT', '/api/v1/payment-profile', body); }
+  createCheckout(body: CheckoutCreateBody, idempotencyKey: string = randomUUID()) { return this.request('POST', '/api/v1/checkouts', body, undefined, true, { 'Idempotency-Key': idempotencyKey }); }
+  getCheckout(id: string) { return this.request('GET', `/api/v1/checkouts/${encodeURIComponent(id)}`); }
+  listCheckouts(q: CheckoutQuery = {}) { return this.request('GET', '/api/v1/checkouts', undefined, q); }
+  cancelCheckout(id: string, idempotencyKey: string = randomUUID()) { return this.request('POST', `/api/v1/checkouts/${encodeURIComponent(id)}/cancel`, {}, undefined, true, { 'Idempotency-Key': idempotencyKey }); }
   generateQr(body: Record<string, unknown>) { return this.request('POST', '/api/v1/acb/qr-payment/generate', body); }
   cancelQr(qrCodeId: string) { return this.request('DELETE', `/api/v1/acb/qr-payment/${qrCodeId}/cancellation`); }
   listTransactions(q: { virtual_account_number?: string; page?: number; limit?: number }) { return this.request('GET', '/api/v1/acb/virtual-account/transactions', undefined, q); }

@@ -81,6 +81,8 @@ Nếu chưa tạo API key, có thể đặt `MONAPAY_USERNAME` và `MONAPAY_PASS
 | `monapay_link_bank_start` · `monapay_link_bank_verify_otp` | nối tài khoản ACB và tạo VA bằng OTP lần 1 |
 | `monapay_notification_register` · `monapay_notification_verify_otp` | bật thông báo tiền vào bằng OTP lần 2 |
 | `monapay_list_bank_accounts` · `monapay_list_virtual_accounts` | tài khoản ngân hàng đã nối, tài khoản ảo (VA) |
+| `monapay_get_payment_profile` · `monapay_set_payment_profile` | xem hoặc thiết lập hồ sơ dùng cho trang thanh toán |
+| `monapay_create_checkout` · `monapay_get_checkout` · `monapay_list_checkouts` · `monapay_cancel_checkout` | tạo link thu tiền, kiểm tra, lọc và huỷ phiên thanh toán |
 | `monapay_create_qr` · `monapay_cancel_qr` | tạo / huỷ VietQR động cho đơn hàng |
 | `monapay_list_transactions` | tra giao dịch tiền vào theo VA (đối soát) |
 | `monapay_list_webhooks` · `monapay_create_webhook` · `monapay_update_webhook` · `monapay_delete_webhook` | cấu hình webhook (HMAC-SHA256 khuyến nghị) |
@@ -101,7 +103,7 @@ Resource: `monapay://docs/llms` (mục lục tài liệu máy đọc), `monapay:
 
 > "Tích hợp nhận tiền chuyển khoản cho web Laravel này bằng MONA Pay."
 
-Agent sẽ: gọi `monapay_me` → lấy code mẫu bằng `monapay_generate_webhook_snippet(language="php")` → viết endpoint vào dự án → `monapay_create_webhook(auth_type="HMAC_SHA256", secret_key=...)` → `monapay_test_webhook` → đọc `monapay_webhook_logs` để chắc endpoint trả 200 → dùng `monapay_create_qr` cho từng đơn.
+Agent sẽ: gọi `monapay_me` → lấy code mẫu bằng `monapay_generate_webhook_snippet(language="php")` → viết endpoint vào dự án → `monapay_create_webhook(auth_type="HMAC_SHA256", secret_key=...)` → `monapay_test_webhook` → đọc `monapay_webhook_logs` để chắc endpoint trả 200 → dùng `monapay_create_checkout` cho từng đơn và đợi `CHECKOUT_PAID`.
 
 ## Nối ngân hàng bằng OTP (4 bước)
 

@@ -153,3 +153,33 @@ test('12 method email dựng đúng endpoint, query, body và header ghi', async
     assert.equal(call.headers['X-Client-Secret'], 'secret');
   }
 });
+
+test('6 method checkout và payment profile dựng đúng request', async () => {
+  const log = [];
+  const c = new MonaPayClient({ clientId: 'cid', clientSecret: 'secret', baseUrl: 'https://x.test', fetchImpl: mockFetch(log) });
+  await c.getPaymentProfile();
+  await c.setPaymentProfile({ display_name: 'Shop MONA', locale: 'vi' });
+  await c.createCheckout({ amount: 250000, order_code: 'DH_10234', return_url: 'https://shop.test/return' }, 'create-key');
+  await c.getCheckout('checkout/id');
+  await c.listCheckouts({ status: 'pending', order_code: 'DH_10234', from_date: '2026-09-01', page: 2, limit: 50 });
+  await c.cancelCheckout('checkout/id', 'cancel-key');
+
+  const calls = log.filter((item) => !item.url.endsWith('/oauth/token'));
+  assert.equal(calls.length, 6);
+  assert.equal(calls[0].url, 'https://x.test/api/v1/payment-profile');
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[1].method, 'PUT');
+  assert.deepEqual(JSON.parse(calls[1].body), { display_name: 'Shop MONA', locale: 'vi' });
+  assert.equal(calls[2].url, 'https://x.test/api/v1/checkouts');
+  assert.equal(calls[2].headers['Idempotency-Key'], 'create-key');
+  assert.equal(calls[3].url, 'https://x.test/api/v1/checkouts/checkout%2Fid');
+  assert.match(calls[4].url, /status=pending/);
+  assert.match(calls[4].url, /order_code=DH_10234/);
+  assert.match(calls[4].url, /limit=50/);
+  assert.equal(calls[5].url, 'https://x.test/api/v1/checkouts/checkout%2Fid/cancel');
+  assert.equal(calls[5].headers['Idempotency-Key'], 'cancel-key');
+  assert.deepEqual(JSON.parse(calls[5].body), {});
+  for (const call of calls.filter((item) => item.method !== 'GET')) {
+    assert.equal(call.headers['X-Client-Secret'], 'secret');
+  }
+});

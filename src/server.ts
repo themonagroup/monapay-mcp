@@ -11,6 +11,8 @@ const emailEvent = z.enum(['TRANSACTION_IN', 'WEBHOOK_FAILED', 'VA_CREATED']);
 const emailEvents = z.array(emailEvent).min(1).max(3).refine((events) => events.includes('TRANSACTION_IN'), { message: 'events phải có TRANSACTION_IN' });
 const emailConfigId = z.string().min(8).describe('UUID cấu hình email');
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dùng định dạng YYYY-MM-DD');
+const checkoutId = z.string().min(1).describe('ID phiên thanh toán');
+const idempotencyKey = z.string().min(1).max(255).optional().describe('Khoá chống tạo trùng; bỏ trống để MCP tự sinh UUID');
 const text = (v: unknown) => ({ content: [{ type: 'text' as const, text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
 const err = (e: unknown) => ({ isError: true, content: [{ type: 'text' as const, text: (e as Error)?.message || String(e) }] });
 const bankErr = (e: unknown) => {
@@ -31,7 +33,7 @@ const responseData = (value: unknown): Record<string, any> => {
 };
 
 export function createServer(getClient: () => MonaPayClient = () => MonaPayClient.fromEnv()) {
-  const server = new McpServer({ name: 'monapay-mcp', version: '0.4.0' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo QR, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
+  const server = new McpServer({ name: 'monapay-mcp', version: '0.5.0' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo link thu tiền, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo checkout, đưa checkout_url cho khách hoặc chuyển hướng sang đó, rồi đợi webhook CHECKOUT_PAID trước khi giao hàng. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
   const run = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return err(e); } };
   const runBankStep = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return bankErr(e); } };
 
@@ -124,6 +126,70 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
       next_step: 'Hoàn tất: tiền vào sẽ có webhook.',
     };
   }));
+  server.registerTool('monapay_get_payment_profile', {
+    title: 'Lấy hồ sơ trang thanh toán',
+    description: 'Lấy tên shop, nhận diện và tài khoản mặc định dùng cho trang thanh toán. / Get the hosted-checkout payment profile.',
+  }, () => run((c) => c.getPaymentProfile()));
+  server.registerTool('monapay_set_payment_profile', {
+    title: 'Thiết lập hồ sơ trang thanh toán',
+    description: 'Tạo hoặc cập nhật tên shop, nhận diện và tài khoản nhận tiền mặc định trước khi tạo checkout. Secret ký redirect chỉ được API trả một lần. / Create or update the hosted-checkout payment profile.',
+    inputSchema: z.object({
+      display_name: z.string().trim().min(1).max(255).optional(),
+      logo_url: z.string().url().nullable().optional().describe('URL HTTPS của logo, tối đa 512 KB'),
+      hotline: z.string().trim().max(30).nullable().optional(),
+      support_email: emailAddress.nullable().optional(),
+      default_bank_account_id: z.string().min(1).optional(),
+      default_virtual_account_id: z.string().min(1).nullable().optional(),
+      va_prefix: z.string().min(1).max(20).optional(),
+      owner_number: z.string().min(1).optional(),
+      owner_type: z.enum(['PER', 'ORG']).optional(),
+      merchant_id: z.string().min(1).optional(),
+      terminal_id: z.string().min(1).optional(),
+      beneficiary_name: z.string().min(1).max(255).optional(),
+      accent_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Màu phải có dạng #RRGGBB').nullable().optional(),
+      locale: z.enum(['vi', 'en']).optional(),
+      show_mona_badge: z.boolean().optional(),
+    }).strict().refine((body) => Object.keys(body).length > 0, { message: 'Cần ít nhất một trường hồ sơ' }),
+  }, (body) => run((c) => c.setPaymentProfile(body)));
+  server.registerTool('monapay_create_checkout', {
+    title: 'Tạo link thu tiền',
+    description: 'Tạo link thu tiền, đưa link cho khách hoặc chuyển hướng checkout; đợi webhook CHECKOUT_PAID trước khi giao hàng. / Create a hosted checkout link; wait for CHECKOUT_PAID before fulfilment.',
+    inputSchema: z.object({
+      amount: z.number().int().min(1_000).max(1_000_000_000).describe('Số tiền nguyên VND'),
+      order_code: z.string().min(1).max(50).regex(/^[A-Za-z0-9_-]+$/, 'Chỉ dùng chữ, số, _ hoặc -'),
+      return_url: z.string().url().startsWith('https://'),
+      cancel_url: z.string().url().startsWith('https://').optional(),
+      description: z.string().max(100).optional(),
+      payer_email: emailAddress.optional(),
+      payer_name: z.string().max(255).optional(),
+      expires_in: z.number().int().min(60).max(86_400).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional().refine((value) => value === undefined || Buffer.byteLength(JSON.stringify(value)) <= 2048, { message: 'metadata tối đa 2 KB' }),
+      virtual_account_id: z.string().min(1).optional(),
+      idempotency_key: idempotencyKey,
+    }).strict(),
+  }, ({ idempotency_key, ...body }) => run((c) => c.createCheckout(body, idempotency_key)));
+  server.registerTool('monapay_get_checkout', {
+    title: 'Lấy một phiên thanh toán',
+    description: 'Lấy trạng thái và chi tiết checkout theo ID; nên kiểm tra server-side trước khi giao hàng. / Get a checkout by ID.',
+    inputSchema: { checkout_id: checkoutId },
+  }, ({ checkout_id }) => run((c) => c.getCheckout(checkout_id)));
+  server.registerTool('monapay_list_checkouts', {
+    title: 'Danh sách phiên thanh toán',
+    description: 'Liệt kê checkout theo trạng thái, mã đơn, khoảng ngày và phân trang. / List and filter hosted checkouts.',
+    inputSchema: {
+      status: z.enum(['pending', 'paid', 'expired', 'cancelled']).optional(),
+      order_code: z.string().max(50).optional(),
+      from_date: isoDate.optional(),
+      to_date: isoDate.optional(),
+      page: z.number().int().min(1).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    },
+  }, (query) => run((c) => c.listCheckouts(query)));
+  server.registerTool('monapay_cancel_checkout', {
+    title: 'Huỷ phiên thanh toán',
+    description: 'Huỷ checkout đang pending; checkout đã paid, expired hoặc cancelled không thể huỷ lại. / Cancel a pending checkout.',
+    inputSchema: { checkout_id: checkoutId, idempotency_key: idempotencyKey },
+  }, ({ checkout_id, idempotency_key }) => run((c) => c.cancelCheckout(checkout_id, idempotency_key)));
   server.registerTool('monapay_create_qr', { title: 'Tạo VietQR động cho đơn hàng', description: 'Tạo mã VietQR động điền sẵn số tiền + nội dung cho một đơn hàng qua ACB. Khách quét là tiền vào tài khoản ảo, MONA Pay bắn webhook. / Create a dynamic VietQR for an order.', inputSchema: {
     orderId: z.string().describe('Mã đơn hàng của hệ thống anh chị'), amount: z.number().int().min(0).max(1_000_000_000).describe('Số tiền VND (số nguyên)'), description: z.string().max(255).optional().describe('Nội dung chuyển khoản, nên chứa mã đơn'),
     ownerNumber: z.string().describe('Số tài khoản ACB nhận tiền'), ownerType: z.enum(['PER', 'ORG']).default('PER').describe('PER cá nhân / ORG doanh nghiệp'), merchantId: z.string().describe('Mã merchant (hiển thị ở dashboard mục Tạo QR)'), terminalId: z.string().default('WEB'),
