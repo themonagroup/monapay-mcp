@@ -6,6 +6,10 @@ process.env.MONAPAY_USERNAME ||= 'qc-site-20260828'; process.env.MONAPAY_PASSWOR
 const server = createServer(); const [ct, st] = InMemoryTransport.createLinkedPair();
 await server.connect(st); const client = new Client({ name: 'smoke', version: '0.0.0' }); await client.connect(ct);
 const tools = await client.listTools(); console.log('tools:', tools.tools.length, tools.tools.map((t) => t.name).join(', '));
+const emailTools = ['monapay_list_email_configs', 'monapay_create_email_config', 'monapay_update_email_config', 'monapay_delete_email_config', 'monapay_verify_email', 'monapay_resend_email_verification', 'monapay_test_email', 'monapay_email_logs', 'monapay_email_stats', 'monapay_list_email_suppressions', 'monapay_remove_email_suppression'];
+const missingEmailTools = emailTools.filter((name) => !tools.tools.some((tool) => tool.name === name));
+if (missingEmailTools.length) throw new Error(`Thiếu email tools: ${missingEmailTools.join(', ')}`);
+console.log('email tools:', emailTools.join(', '));
 for (const [name, args] of [['monapay_me', {}], ['monapay_list_bank_accounts', {}], ['monapay_list_transactions', { virtual_account_number: '0000000000', limit: 2 }], ['monapay_list_webhooks', {}], ['monapay_generate_webhook_snippet', { language: 'php' }], ['monapay_verify_signature', { raw_body: '{}', timestamp: '1', signature: 'x', secret: 's', skip_time_check: true }]]) {
   const r = await client.callTool({ name, arguments: args }); console.log(`\n== ${name} ${r.isError ? 'ERROR' : 'OK'}\n` + String(r.content?.[0]?.text || '').slice(0, 220));
 }

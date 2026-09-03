@@ -148,6 +148,8 @@ test('monapay_whoami trả số lượng và next_step nối ngân hàng khi ch�
     if (parsed.pathname === '/api/v1/billing/usage') return response({ success: true, data: { plan_name: 'Free' } });
     if (parsed.pathname === '/api/v1/client/bank-accounts') return response({ success: true, data: { data: [], total: 0 } });
     if (parsed.pathname === '/api/v1/client-webhooks') return response({ success: true, data: [] });
+    if (parsed.pathname === '/api/v1/telegram-configs') return response({ success: true, data: [] });
+    if (parsed.pathname === '/api/v1/email-configs') return response({ success: true, data: [] });
     throw new Error(`Unexpected URL: ${url}`);
   };
   await withMcp(fetchImpl, async (client) => {
@@ -159,4 +161,62 @@ test('monapay_whoami trả số lượng và next_step nối ngân hàng khi ch�
     });
   });
   assert.equal(loginCount, 1);
+});
+
+test('11 tool email có schema chặt và ánh xạ đúng API', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const parsed = new URL(String(url));
+    calls.push({ path: parsed.pathname, search: parsed.search, method: init?.method, body: init?.body, headers: init?.headers });
+    if (parsed.pathname === '/api/v1/oauth/token') return response({ success: true, data: { access_token: 'token', expires_in: 3600 } });
+    return response({ success: true, data: { ok: true } });
+  };
+  const configId = '11111111-1111-4111-8111-111111111111';
+
+  await withMcp(fetchImpl, async (client) => {
+    const listed = await client.listTools();
+    const emailToolNames = [
+      'monapay_list_email_configs', 'monapay_create_email_config', 'monapay_update_email_config',
+      'monapay_delete_email_config', 'monapay_verify_email', 'monapay_resend_email_verification',
+      'monapay_test_email', 'monapay_email_logs', 'monapay_email_stats',
+      'monapay_list_email_suppressions', 'monapay_remove_email_suppression',
+    ];
+    for (const name of emailToolNames) assert.ok(listed.tools.some((tool) => tool.name === name), `${name} phải được đăng ký`);
+    const createTool = listed.tools.find((tool) => tool.name === 'monapay_create_email_config');
+    assert.match(createTool.description, /hỏi người dùng mã/i);
+    assert.match(createTool.description, /không tự đoán mã/i);
+    assert.equal(createTool.inputSchema.properties.recipients.maxItems, 10);
+    const verifyTool = listed.tools.find((tool) => tool.name === 'monapay_verify_email');
+    assert.equal(verifyTool.inputSchema.properties.code.pattern, '^\\d{6}$');
+
+    await client.callTool({ name: 'monapay_list_email_configs', arguments: {} });
+    await client.callTool({ name: 'monapay_create_email_config', arguments: { name: 'Kế toán', recipients: ['kt@example.com'] } });
+    await client.callTool({ name: 'monapay_update_email_config', arguments: { config_id: configId, name: 'Kế toán mới', is_active: true } });
+    await client.callTool({ name: 'monapay_delete_email_config', arguments: { config_id: configId } });
+    await client.callTool({ name: 'monapay_verify_email', arguments: { config_id: configId, email: 'kt@example.com', code: '123456' } });
+    await client.callTool({ name: 'monapay_resend_email_verification', arguments: { config_id: configId, email: 'kt@example.com' } });
+    await client.callTool({ name: 'monapay_test_email', arguments: { config_id: configId } });
+    await client.callTool({ name: 'monapay_email_logs', arguments: { config_id: configId, status: 'sent', event_type: 'TEST', from_date: '2026-09-01', page: 2, limit: 100 } });
+    await client.callTool({ name: 'monapay_email_stats', arguments: { from_date: '2026-09-01', to_date: '2026-09-03' } });
+    await client.callTool({ name: 'monapay_list_email_suppressions', arguments: {} });
+    await client.callTool({ name: 'monapay_remove_email_suppression', arguments: { email: 'bounce+tag@example.com' } });
+  });
+
+  const apiCalls = calls.filter((call) => call.path !== '/api/v1/oauth/token');
+  assert.equal(apiCalls.length, 11);
+  assert.equal(apiCalls[0].path, '/api/v1/email-configs');
+  assert.deepEqual(JSON.parse(apiCalls[1].body), { name: 'Kế toán', recipients: ['kt@example.com'], events: ['TRANSACTION_IN'] });
+  assert.deepEqual(JSON.parse(apiCalls[2].body), { name: 'Kế toán mới', is_active: true });
+  assert.equal(apiCalls[3].method, 'DELETE');
+  assert.deepEqual(JSON.parse(apiCalls[4].body), { email: 'kt@example.com', code: '123456' });
+  assert.ok(apiCalls[5].path.endsWith('/resend-verification'));
+  assert.deepEqual(JSON.parse(apiCalls[6].body), {});
+  assert.match(apiCalls[7].search, /status=sent/);
+  assert.match(apiCalls[7].search, /limit=100/);
+  assert.match(apiCalls[8].search, /to_date=2026-09-03/);
+  assert.equal(apiCalls[9].path, '/api/v1/email-suppressions');
+  assert.equal(apiCalls[10].path, '/api/v1/email-suppressions/bounce%2Btag%40example.com');
+  for (const call of apiCalls.filter((item) => item.method !== 'GET')) {
+    assert.equal(call.headers['X-Client-Secret'], 'client-secret');
+  }
 });

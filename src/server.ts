@@ -5,7 +5,12 @@ import { verifyWebhookSignature, computeSignature } from './verify.js';
 import { SNIPPETS, SAMPLE_PAYLOAD } from './snippets.js';
 
 const DOCS = 'https://monapay.vn';
-const ENTITY = 'MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook và Telegram — thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
+const ENTITY = 'MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram và email, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
+const emailAddress = z.string().trim().email().max(320);
+const emailEvent = z.enum(['TRANSACTION_IN', 'WEBHOOK_FAILED', 'VA_CREATED']);
+const emailEvents = z.array(emailEvent).min(1).max(3).refine((events) => events.includes('TRANSACTION_IN'), { message: 'events phải có TRANSACTION_IN' });
+const emailConfigId = z.string().min(8).describe('UUID cấu hình email');
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dùng định dạng YYYY-MM-DD');
 const text = (v: unknown) => ({ content: [{ type: 'text' as const, text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
 const err = (e: unknown) => ({ isError: true, content: [{ type: 'text' as const, text: (e as Error)?.message || String(e) }] });
 const bankErr = (e: unknown) => {
@@ -26,7 +31,7 @@ const responseData = (value: unknown): Record<string, any> => {
 };
 
 export function createServer(getClient: () => MonaPayClient = () => MonaPayClient.fromEnv()) {
-  const server = new McpServer({ name: 'monapay-mcp', version: '0.3.0' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo QR, tra giao dịch, cấu hình và test webhook. Không bao giờ tự đoán OTP; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
+  const server = new McpServer({ name: 'monapay-mcp', version: '0.4.0' }, { instructions: `${ENTITY}\nDùng các tool monapay_* để nối ngân hàng bằng OTP, tạo QR, tra giao dịch, cấu hình và test các kênh webhook, Telegram và email. Khi tạo cấu hình email, hỏi người dùng mã 6 số được gửi tới từng địa chỉ rồi mới gọi monapay_verify_email; không tự đoán mã. Không bao giờ tự đoán OTP ngân hàng; phải hỏi người dùng mã ngân hàng gửi về điện thoại. Tiền không đi qua MONA Pay; MONA Pay chỉ đọc thông báo ngân hàng. Docs máy đọc: ${DOCS}/llms.txt` });
   const run = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return err(e); } };
   const runBankStep = async (fn: (c: MonaPayClient) => Promise<unknown>) => { try { return text(await fn(getClient())); } catch (e) { return bankErr(e); } };
 
@@ -44,7 +49,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
       prefix: z.string().min(1).max(20).regex(/^[A-Za-z0-9]+$/, 'Prefix chỉ gồm chữ hoặc số không dấu').describe('Đầu số VA đã đăng ký với ACB, ví dụ LOC'),
       identifier: z.string().min(1).max(10).regex(/^[A-Za-z0-9]+$/, 'Tối đa 10 ký tự chữ hoặc số không dấu').describe('Nội dung định danh VA, tối đa 10 ký tự không dấu'),
       description: z.string().max(255).optional().describe('Diễn giải đăng ký VA'),
-      bank_account_id: z.string().uuid().optional().describe('UUID tài khoản ACB đã nối; khi có, API bỏ qua account_number và phone_number'),
+      bank_account_id: z.string().min(8).optional().describe('UUID tài khoản ACB đã nối; khi có, API bỏ qua account_number và phone_number'),
     }).superRefine((value, ctx) => {
       if (!value.bank_account_id && value.account_number === undefined) ctx.addIssue({ code: 'custom', path: ['account_number'], message: 'Cần account_number hoặc bank_account_id' });
       if (!value.bank_account_id && !value.phone_number) ctx.addIssue({ code: 'custom', path: ['phone_number'], message: 'Cần phone_number khi không có bank_account_id' });
@@ -74,7 +79,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
     title: 'Xác thực OTP và tạo tài khoản ảo ACB',
     description: 'Bước 2/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 2/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP.',
     inputSchema: {
-      acb_request_id: z.string().uuid().describe('ID yêu cầu ACB trả về từ monapay_link_bank_start'),
+      acb_request_id: z.string().min(8).describe('ID yêu cầu ACB trả về từ monapay_link_bank_start'),
       code: z.string().min(4).max(10).regex(/^\d+$/, 'OTP chỉ gồm chữ số').describe('OTP do người dùng cung cấp sau khi nhận từ ACB'),
     },
   }, ({ acb_request_id, code }) => runBankStep(async (c) => {
@@ -91,7 +96,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   server.registerTool('monapay_notification_register', {
     title: 'Đăng ký thông báo tiền vào và gửi OTP lần 2',
     description: 'Bước 3/4: đăng ký nhận thông báo giao dịch tức thì. OTP lần 2 do ngân hàng gửi về điện thoại của người dùng; agent phải HỎI người dùng rồi mới gọi tool xác thực, không được tự đoán. / Step 3/4: register real-time transaction notifications. The second OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before verification and must never guess it.',
-    inputSchema: { virtual_account_id: z.string().uuid().describe('ID VA trả về từ monapay_link_bank_verify_otp') },
+    inputSchema: { virtual_account_id: z.string().min(8).describe('ID VA trả về từ monapay_link_bank_verify_otp') },
   }, ({ virtual_account_id }) => runBankStep(async (c) => {
     const response = await c.registerNotification(virtual_account_id);
     const data = responseData(response);
@@ -108,7 +113,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
     title: 'Xác thực OTP lần 2 và hoàn tất nhận tiền',
     description: 'Bước 4/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 4/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP.',
     inputSchema: {
-      acb_request_id: z.string().uuid().describe('ID yêu cầu ACB trả về từ monapay_notification_register'),
+      acb_request_id: z.string().min(8).describe('ID yêu cầu ACB trả về từ monapay_notification_register'),
       code: z.string().min(4).max(10).regex(/^\d+$/, 'OTP chỉ gồm chữ số').describe('OTP lần 2 do người dùng cung cấp sau khi nhận từ ACB'),
     },
   }, ({ acb_request_id, code }) => runBankStep(async (c) => {
@@ -126,6 +131,7 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   } }, (args) => run((c) => c.generateQr(args)));
   server.registerTool('monapay_cancel_qr', { title: 'Huỷ mã QR', description: 'Huỷ một mã VietQR động đã tạo. / Cancel a dynamic QR.', inputSchema: { qr_code_id: z.string() } }, ({ qr_code_id }) => run((c) => c.cancelQr(qr_code_id)));
   server.registerTool('monapay_list_transactions', { title: 'Tra giao dịch tiền vào', description: 'Liệt kê giao dịch tiền vào theo tài khoản ảo, phân trang tối đa 100/trang; dùng để đối soát. / List incoming transactions.', inputSchema: { virtual_account_number: z.string().describe('Số tài khoản ảo (bắt buộc; lấy từ monapay_list_virtual_accounts)'), page: z.number().int().min(1).default(1), limit: z.number().int().min(1).max(100).default(20) } }, (q) => run((c) => c.listTransactions(q)));
+  server.registerTool('monapay_sandbox_transaction', { title: 'Tạo giao dịch thử (sandbox, không tốn tiền)', description: 'Tạo một giao dịch tiền vào GIẢ cho VA đã nối ngân hàng: MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email như tiền thật, không tính hạn mức. Trả 422 nếu VA chưa nối ngân hàng (quay lại monapay_link_bank_start). / Create a fake incoming transaction in the sandbox.', inputSchema: { virtual_account_number: z.string().describe('Số tài khoản ảo đã nối'), amount: z.number().int().positive().default(10000), description: z.string().default('DH10234 test sandbox').describe('Nội dung chuyển khoản giả') } }, (body) => run((c) => c.sandboxTransaction(body)));
   server.registerTool('monapay_list_webhooks', { title: 'Danh sách cấu hình webhook', description: 'Liệt kê webhook đã cấu hình. / List webhook configs.' }, () => run((c) => c.listWebhooks()));
   server.registerTool('monapay_create_webhook', { title: 'Tạo cấu hình webhook', description: 'Đăng ký URL nhận webhook khi có tiền vào; khuyến nghị auth_type HMAC_SHA256 + secret_key. / Create a webhook config.', inputSchema: {
     name: z.string(), webhook_url: z.string().url(), auth_type: z.enum(['NONE', 'API_KEY', 'HMAC_SHA256']).default('HMAC_SHA256'), secret_key: z.string().optional().describe('Secret ký HMAC hoặc giá trị API key'), api_key_name: z.string().optional().describe('Tên header khi auth_type=API_KEY, mặc định X-Webhook-Secret'),
@@ -136,6 +142,83 @@ export function createServer(getClient: () => MonaPayClient = () => MonaPayClien
   server.registerTool('monapay_test_webhook', { title: 'Bắn webhook thử', description: 'MONA Pay gửi một giao dịch giả (is_dummy) tới URL để kiểm tra endpoint + chữ ký. / Send a dummy webhook.', inputSchema: { webhook_url: z.string().url().optional().describe('Bỏ trống = dùng config đã lưu'), auth_type: z.enum(['NONE', 'API_KEY', 'HMAC_SHA256']).optional(), secret_key: z.string().optional() } }, (args) => run((c) => c.testWebhook(args)));
   server.registerTool('monapay_webhook_logs', { title: 'Lịch sử gửi webhook', description: 'Lịch sử từng lần gửi (HTTP code, thời gian phản hồi, nhãn lỗi). / Webhook delivery logs.', inputSchema: { status: z.enum(['success', 'failed']).optional(), from_date: z.string().optional().describe('YYYY-MM-DD'), to_date: z.string().optional(), page: z.number().int().optional(), limit: z.number().int().max(100).optional() } }, (q) => run((c) => c.webhookLogs(q)));
   server.registerTool('monapay_webhook_stats', { title: 'Thống kê webhook', description: 'Tỷ lệ thành công, P95, phân loại lỗi. / Webhook delivery stats.' }, () => run((c) => c.webhookStats()));
+  server.registerTool('monapay_list_email_configs', {
+    title: 'Danh sách cấu hình email',
+    description: 'Liệt kê các cấu hình gửi thông báo email và trạng thái xác minh người nhận. / List email notification configs and recipient verification status.',
+  }, () => run((c) => c.listEmailConfigs()));
+  server.registerTool('monapay_create_email_config', {
+    title: 'Tạo cấu hình thông báo email',
+    description: 'Tạo kênh thông báo email. Sau khi tạo, MONA Pay gửi mã 6 số tới từng địa chỉ; hỏi người dùng mã rồi gọi monapay_verify_email; không tự đoán mã. / Create an email notification config. MONA Pay sends a 6-digit code to each address; ask the user for each code, call monapay_verify_email, and never guess a code.',
+    inputSchema: z.object({
+      name: z.string().trim().min(1).max(255).describe('Tên cấu hình'),
+      recipients: z.array(emailAddress).min(1).max(10).describe('Từ 1 đến 10 địa chỉ nhận email'),
+      events: emailEvents.default(['TRANSACTION_IN']).describe('Sự kiện gửi email; luôn phải có TRANSACTION_IN'),
+      virtual_account_id: z.string().min(8).optional().describe('Chỉ nhận thông báo cho VA này; bỏ trống = mọi tài khoản'),
+    }).strict(),
+  }, (args) => run((c) => c.createEmailConfig(args)));
+  server.registerTool('monapay_update_email_config', {
+    title: 'Sửa cấu hình thông báo email',
+    description: 'Cập nhật tên, người nhận, sự kiện, VA hoặc trạng thái bật/tắt của cấu hình email. Người nhận mới phải xác minh trước khi cấu hình hoạt động. / Update an email config; new recipients must be verified before activation.',
+    inputSchema: z.object({
+      config_id: emailConfigId,
+      name: z.string().trim().min(1).max(255).optional(),
+      recipients: z.array(emailAddress).min(1).max(10).optional(),
+      events: emailEvents.optional(),
+      virtual_account_id: z.string().min(8).nullable().optional().describe('UUID VA; null để bỏ giới hạn VA'),
+      is_active: z.boolean().optional(),
+    }).strict().refine(({ config_id: _configId, ...body }) => Object.keys(body).length > 0, { message: 'Cần ít nhất một trường để cập nhật' }),
+  }, ({ config_id, ...body }) => run((c) => c.updateEmailConfig(config_id, body)));
+  server.registerTool('monapay_delete_email_config', {
+    title: 'Xoá cấu hình thông báo email',
+    description: 'Xoá vĩnh viễn một cấu hình email. / Permanently delete an email notification config.',
+    inputSchema: { config_id: emailConfigId },
+  }, ({ config_id }) => run((c) => c.deleteEmailConfig(config_id)));
+  server.registerTool('monapay_verify_email', {
+    title: 'Xác minh địa chỉ nhận email',
+    description: 'Xác minh một người nhận bằng đúng mã 6 số người dùng đọc từ hộp thư; phải hỏi người dùng và không tự đoán mã. / Verify a recipient with the exact 6-digit code supplied by the user; never guess it.',
+    inputSchema: {
+      config_id: emailConfigId,
+      email: emailAddress.describe('Địa chỉ đang chờ xác minh'),
+      code: z.string().regex(/^\d{6}$/, 'Mã xác minh phải có đúng 6 chữ số').describe('Mã 6 số do người dùng cung cấp'),
+    },
+  }, ({ config_id, email, code }) => run((c) => c.verifyEmail(config_id, { email, code })));
+  server.registerTool('monapay_resend_email_verification', {
+    title: 'Gửi lại mã xác minh email',
+    description: 'Gửi mã xác minh mới tới một địa chỉ trong cấu hình; giới hạn 5 lần/địa chỉ/giờ. / Resend a verification code, limited to five requests per address per hour.',
+    inputSchema: { config_id: emailConfigId, email: emailAddress },
+  }, ({ config_id, email }) => run((c) => c.resendEmailVerification(config_id, { email })));
+  server.registerTool('monapay_test_email', {
+    title: 'Gửi thử thông báo email',
+    description: 'Gửi email mẫu tới các địa chỉ đã xác minh trong cấu hình. / Send a test notification to verified recipients in a config.',
+    inputSchema: { config_id: emailConfigId },
+  }, ({ config_id }) => run((c) => c.testEmail(config_id)));
+  server.registerTool('monapay_email_logs', {
+    title: 'Lịch sử gửi email',
+    description: 'Tra meta từng lần gửi email, không chứa nội dung thư; lọc theo cấu hình, trạng thái, sự kiện và ngày. / List email delivery metadata; message bodies are never stored.',
+    inputSchema: {
+      config_id: z.string().min(8).optional(),
+      status: z.enum(['sent', 'failed', 'suppressed']).optional(),
+      event_type: z.enum(['TRANSACTION_IN', 'WEBHOOK_FAILED', 'VA_CREATED', 'VERIFICATION', 'TEST', 'RECEIPT']).optional(),
+      from_date: isoDate.optional(),
+      to_date: isoDate.optional(),
+      page: z.number().int().min(1).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    },
+  }, (query) => run((c) => c.emailLogs(query)));
+  server.registerTool('monapay_email_stats', {
+    title: 'Thống kê gửi email',
+    description: 'Lấy tổng số gửi, tỷ lệ thành công, P95 và nhóm lỗi trong khoảng ngày. / Get email delivery totals, success rate, P95 latency and error groups.',
+    inputSchema: { from_date: isoDate.optional(), to_date: isoDate.optional() },
+  }, (query) => run((c) => c.emailStats(query)));
+  server.registerTool('monapay_list_email_suppressions', {
+    title: 'Danh sách email bị chặn gửi',
+    description: 'Liệt kê địa chỉ bị suppression do bounce, khiếu nại hoặc tắt tay. / List suppressed recipient addresses.',
+  }, () => run((c) => c.listEmailSuppressions()));
+  server.registerTool('monapay_remove_email_suppression', {
+    title: 'Gỡ chặn gửi tới một email',
+    description: 'Gỡ suppression sau khi đã sửa nguyên nhân; client tự chịu trách nhiệm khi gửi lại. / Remove a suppression after fixing its cause; the client accepts responsibility for future sends.',
+    inputSchema: { email: emailAddress },
+  }, ({ email }) => run((c) => c.removeEmailSuppression(email)));
   server.registerTool('monapay_retry_transaction', { title: 'Gửi lại thông báo của một giao dịch', description: 'Gửi lại webhook hoặc Telegram cho giao dịch đã có. / Re-send webhook/Telegram for a transaction.', inputSchema: { transaction_id: z.string(), target_type: z.enum(['WEBHOOK', 'TELEGRAM']).default('WEBHOOK'), target_id: z.string().optional() } }, ({ transaction_id, ...body }) => run((c) => c.retryTransaction(transaction_id, body)));
   server.registerTool('monapay_generate_key', { title: 'Tạo API key (client_secret)', description: 'Sinh client_secret mới (hiện 1 lần) để dùng header X-Client-Secret. / Generate a client secret.', inputSchema: { name: z.string().default('mcp') } }, ({ name }) => run((c) => c.generateKey(name)));
   server.registerTool('monapay_verify_signature', { title: 'Kiểm chữ ký webhook (offline)', description: 'Tính và so chữ ký HMAC-SHA256 của một webhook MONA Pay từ raw body + timestamp + secret, không gọi mạng. / Verify a webhook signature locally.', inputSchema: { raw_body: z.string(), timestamp: z.string(), signature: z.string(), secret: z.string(), tolerance_sec: z.number().int().default(300), skip_time_check: z.boolean().default(false) } }, ({ raw_body, timestamp, signature, secret, tolerance_sec, skip_time_check }) => {

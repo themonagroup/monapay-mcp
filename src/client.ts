@@ -21,6 +21,26 @@ export type VirtualAccountRegistrationBody = {
   user_agreement?: boolean;
 };
 export type NotificationRegistrationBody = { receive_noti_realtime: boolean; username?: string };
+export type EmailConfigBody = {
+  name: string;
+  recipients: string[];
+  events?: Array<'TRANSACTION_IN' | 'WEBHOOK_FAILED' | 'VA_CREATED'>;
+  virtual_account_id?: string;
+};
+export type EmailConfigUpdateBody = Omit<Partial<EmailConfigBody>, 'virtual_account_id'> & {
+  virtual_account_id?: string | null;
+  is_active?: boolean;
+};
+export type EmailLogQuery = {
+  config_id?: string;
+  status?: 'sent' | 'failed' | 'suppressed';
+  event_type?: 'TRANSACTION_IN' | 'WEBHOOK_FAILED' | 'VA_CREATED' | 'VERIFICATION' | 'TEST' | 'RECEIPT';
+  from_date?: string;
+  to_date?: string;
+  page?: number;
+  limit?: number;
+};
+export type EmailStatsQuery = { from_date?: string; to_date?: string };
 export class MonaPayError extends Error {
   constructor(message: string, public status: number, public body?: unknown) { super(message); this.name = 'MonaPayError'; }
 }
@@ -81,16 +101,20 @@ export class MonaPayClient {
   billingUsage() { return this.request('GET', '/api/v1/billing/usage'); }
   async whoami() {
     const profileResponse = await this.me();
-    const [usageResponse, bankResponse, webhookResponse] = await Promise.all([
+    const [usageResponse, bankResponse, webhookResponse, telegramResponse, emailResponse] = await Promise.all([
       this.billingUsage(),
       this.listBankAccounts({ page: 1, limit: 100 }),
       this.listWebhooks(),
+      this.listTelegramConfigs(),
+      this.listEmailConfigs(),
     ]);
     const profile = (profileResponse.data || {}) as Record<string, unknown>;
     const usage = (usageResponse.data || {}) as Record<string, unknown>;
     const bankAccounts = collectionItems(bankResponse.data);
     const bankAccountCount = collectionCount(bankResponse.data);
     const webhookCount = collectionCount(webhookResponse.data);
+    const telegramCount = collectionCount(telegramResponse.data);
+    const emailCount = collectionCount(emailResponse.data);
     const bankAccountIds = bankAccounts
       .map((account) => typeof account.id === 'string' ? account.id : '')
       .filter(Boolean);
@@ -110,8 +134,8 @@ export class MonaPayClient {
         ? 'Kiểm tra tài khoản ảo: gọi monapay_list_virtual_accounts với bank_account_id đã nối'
         : virtualAccountCount === 0
           ? 'Tạo tài khoản ảo: gọi monapay_link_bank_start với bank_account_id đã nối'
-          : webhookCount === 0
-            ? 'Tạo webhook: gọi monapay_create_webhook để nhận thông báo tiền vào'
+          : webhookCount === 0 && telegramCount === 0 && emailCount === 0
+            ? 'Chưa có kênh thông báo nào (webhook/Telegram/email): gọi monapay_create_webhook hoặc monapay_create_email_config'
             : 'Sẵn sàng nhận tiền';
     return {
       success: true,
@@ -137,6 +161,7 @@ export class MonaPayClient {
   generateQr(body: Record<string, unknown>) { return this.request('POST', '/api/v1/acb/qr-payment/generate', body); }
   cancelQr(qrCodeId: string) { return this.request('DELETE', `/api/v1/acb/qr-payment/${qrCodeId}/cancellation`); }
   listTransactions(q: { virtual_account_number?: string; page?: number; limit?: number }) { return this.request('GET', '/api/v1/acb/virtual-account/transactions', undefined, q); }
+  sandboxTransaction(body: Record<string, unknown>) { return this.request('POST', '/api/v1/sandbox/transactions', body); }
   listWebhooks() { return this.request('GET', '/api/v1/client-webhooks'); }
   createWebhook(body: Record<string, unknown>) { return this.request('POST', '/api/v1/client-webhooks', body); }
   updateWebhook(id: string, body: Record<string, unknown>) { return this.request('PUT', `/api/v1/client-webhooks/${id}`, body); }
@@ -144,6 +169,19 @@ export class MonaPayClient {
   testWebhook(body: Record<string, unknown>) { return this.request('POST', '/api/v1/client-webhooks/test', { is_dummy: true, ...body }); }
   webhookLogs(q: { status?: string; from_date?: string; to_date?: string; page?: number; limit?: number }) { return this.request('GET', '/api/v1/webhook-logs', undefined, q); }
   webhookStats() { return this.request('GET', '/api/v1/webhook-logs/stats'); }
+  listTelegramConfigs() { return this.request('GET', '/api/v1/telegram-configs'); }
+  listEmailConfigs() { return this.request('GET', '/api/v1/email-configs'); }
+  getEmailConfig(id: string) { return this.request('GET', `/api/v1/email-configs/${encodeURIComponent(id)}`); }
+  createEmailConfig(body: EmailConfigBody) { return this.request('POST', '/api/v1/email-configs', body); }
+  updateEmailConfig(id: string, body: EmailConfigUpdateBody) { return this.request('PUT', `/api/v1/email-configs/${encodeURIComponent(id)}`, body); }
+  deleteEmailConfig(id: string) { return this.request('DELETE', `/api/v1/email-configs/${encodeURIComponent(id)}`); }
+  verifyEmail(id: string, body: { email: string; code: string }) { return this.request('POST', `/api/v1/email-configs/${encodeURIComponent(id)}/verify`, body); }
+  resendEmailVerification(id: string, body: { email: string }) { return this.request('POST', `/api/v1/email-configs/${encodeURIComponent(id)}/resend-verification`, body); }
+  testEmail(id: string) { return this.request('POST', `/api/v1/email-configs/${encodeURIComponent(id)}/test`, {}); }
+  emailLogs(q: EmailLogQuery = {}) { return this.request('GET', '/api/v1/email-logs', undefined, q); }
+  emailStats(q: EmailStatsQuery = {}) { return this.request('GET', '/api/v1/email-logs/stats', undefined, q); }
+  listEmailSuppressions() { return this.request('GET', '/api/v1/email-suppressions'); }
+  removeEmailSuppression(email: string) { return this.request('DELETE', `/api/v1/email-suppressions/${encodeURIComponent(email)}`); }
   retryTransaction(transactionId: string, body: { target_type: 'WEBHOOK' | 'TELEGRAM'; target_id?: string }) { return this.request('POST', `/api/v1/acb/virtual-account/transactions/${transactionId}/retry`, body); }
   generateKey(name: string) { return this.request('POST', '/api/v1/client-keys/generate', { name }); }
   listKeys() { return this.request('GET', '/api/v1/client-keys/list'); }

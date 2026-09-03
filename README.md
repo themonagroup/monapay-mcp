@@ -1,6 +1,6 @@
 # monapay-mcp — MCP server cho MONA Pay
 
-MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook và Telegram — thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút. Miễn phí hoàn toàn, tiền không đi qua MONA Pay.
+MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram và email, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút. Miễn phí hoàn toàn, tiền không đi qua MONA Pay.
 
 `monapay-mcp` cho **Claude Code, Cursor, Codex** (hoặc bất kỳ client MCP nào) gọi thẳng MONA Pay ngay trong lúc code: tạo VietQR cho đơn, tra giao dịch, cấu hình và bắn thử webhook, kiểm chữ ký HMAC, lấy code mẫu nhận webhook. Không cần rời IDE.
 
@@ -76,7 +76,7 @@ Nếu chưa tạo API key, có thể đặt `MONAPAY_USERNAME` và `MONAPAY_PASS
 
 | Tool | Làm gì |
 |---|---|
-| `monapay_whoami` | kiểm tra kết nối, đếm bank/VA/webhook và trả bước tiếp theo |
+| `monapay_whoami` | kiểm tra kết nối, đếm bank/VA và gợi ý kênh thông báo tiếp theo |
 | `monapay_me` | hồ sơ tài khoản đang đăng nhập |
 | `monapay_link_bank_start` · `monapay_link_bank_verify_otp` | nối tài khoản ACB và tạo VA bằng OTP lần 1 |
 | `monapay_notification_register` · `monapay_notification_verify_otp` | bật thông báo tiền vào bằng OTP lần 2 |
@@ -85,6 +85,11 @@ Nếu chưa tạo API key, có thể đặt `MONAPAY_USERNAME` và `MONAPAY_PASS
 | `monapay_list_transactions` | tra giao dịch tiền vào theo VA (đối soát) |
 | `monapay_list_webhooks` · `monapay_create_webhook` · `monapay_update_webhook` · `monapay_delete_webhook` | cấu hình webhook (HMAC-SHA256 khuyến nghị) |
 | `monapay_test_webhook` · `monapay_webhook_logs` · `monapay_webhook_stats` | bắn thử, lịch sử từng lần gửi, tỷ lệ thành công / P95 |
+| `monapay_sandbox_transaction` | Tạo giao dịch tiền vào giả cho VA đã nối (webhook/Telegram/email chạy như thật, không tính hạn mức). |
+| `monapay_list_email_configs` · `monapay_create_email_config` · `monapay_update_email_config` · `monapay_delete_email_config` | cấu hình email cho tối đa 10 người nhận |
+| `monapay_verify_email` · `monapay_resend_email_verification` · `monapay_test_email` | xác minh bằng mã 6 số, gửi lại mã và gửi email thử |
+| `monapay_email_logs` · `monapay_email_stats` | lịch sử meta, tỷ lệ thành công / P95 và nhóm lỗi gửi email |
+| `monapay_list_email_suppressions` · `monapay_remove_email_suppression` | xem và gỡ địa chỉ bị chặn gửi |
 | `monapay_retry_transaction` | gửi lại webhook hoặc Telegram cho một giao dịch |
 | `monapay_generate_key` | sinh client_secret mới |
 | `monapay_verify_signature` | kiểm chữ ký webhook ngay tại chỗ, không gọi mạng |
