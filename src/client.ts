@@ -221,6 +221,14 @@ export class MonaPayClient {
   cancelQr(qrCodeId: string) { return this.request('DELETE', `/api/v1/acb/qr-payment/${qrCodeId}/cancellation`); }
   listTransactions(q: { virtual_account_number?: string; page?: number; limit?: number }) { return this.request('GET', '/api/v1/acb/virtual-account/transactions', undefined, q); }
   sandboxTransaction(body: Record<string, unknown>) { return this.request('POST', '/api/v1/sandbox/transactions', body); }
+  async getTransaction(virtual_account_number: string, id_or_code: string) {
+    const res: any = await this.listTransactions({ virtual_account_number, page: 1, limit: 100 });
+    const raw = res?.data;
+    const items: any[] = Array.isArray(raw) ? raw : (raw?.items || raw?.data || []);
+    const found = items.find((t: any) => t?.id === id_or_code || t?.transaction_code === id_or_code || t?.transaction_id === id_or_code || t?.reference_number === id_or_code) || null;
+    return { success: true, message: found ? 'Da tim thay giao dich' : 'Khong thay giao dich khop; thu monapay_list_transactions', data: found };
+  }
+  dashboardStats(q: { start_date?: string; end_date?: string } = {}) { return this.request('GET', '/api/v1/client/dashboard-stats', undefined, q); }
   listWebhooks() { return this.request('GET', '/api/v1/client-webhooks'); }
   createWebhook(body: Record<string, unknown>) { return this.request('POST', '/api/v1/client-webhooks', body); }
   updateWebhook(id: string, body: Record<string, unknown>) { return this.request('PUT', `/api/v1/client-webhooks/${id}`, body); }

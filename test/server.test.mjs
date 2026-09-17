@@ -269,7 +269,7 @@ test('6 tool nhóm Zalo có schema chặt và ánh xạ đúng API', async () =>
 
   await withMcp(fetchImpl, async (client) => {
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 47);
+    assert.equal(listed.tools.length, 50);
     const zaloToolNames = [
       'monapay_list_zalo_groups', 'monapay_create_zalo_group', 'monapay_update_zalo_group',
       'monapay_delete_zalo_group', 'monapay_test_zalo_group', 'monapay_zalo_group_logs',

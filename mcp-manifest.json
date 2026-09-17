@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "name": "monapay-mcp",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group.",
   "product": {
     "name": "MONA Pay",
@@ -319,6 +319,24 @@
       "name": "monapay_generate_webhook_snippet",
       "title": "Code mẫu nhận webhook",
       "description": "Trả code mẫu endpoint nhận webhook MONA Pay + verify HMAC đúng chuẩn cho PHP / Node / Python, kèm payload mẫu. / Get a webhook receiver snippet.",
+      "scope": "read"
+    },
+    {
+      "name": "monapay_quickstart",
+      "title": "Bat dau nhan tien: kiem tra trang thai va cac buoc tiep theo",
+      "description": "DIEM VAO cho y dinh \"toi muon nhan tien chuyen khoan tu dong\". Goi tool nay TRUOC: no kiem tra tai khoan (da noi ngan hang/VA chua, da co webhook chua) va tra ve cac BUOC TIEP THEO cu the + recipe end-to-end. / Entry point for \"I want to receive bank transfers\": checks state and returns concrete next steps + recipe.",
+      "scope": "write"
+    },
+    {
+      "name": "monapay_get_transaction",
+      "title": "Tra 1 giao dich theo ma don hoac ID",
+      "description": "Tim 1 giao dich tien vao theo transaction_code (ma don, vd DH10234) hoac id trong mot tai khoan ao; dung de kiem \"don X da thanh toan chua\". / Get one incoming transaction by code/id within a virtual account.",
+      "scope": "read"
+    },
+    {
+      "name": "monapay_get_transactions_summary",
+      "title": "Tong tien vao theo khoang (KHONG phai so du vi)",
+      "description": "Tong tien vao + so giao dich + du lieu theo ngay trong khoang chon. LUU Y: MONA Pay KHONG giu tien, khong co \"so du vi\"; day la tong tien da vao tai khoan ngan hang cua ban. / Incoming totals over a date range (MONA Pay holds no wallet balance).",
       "scope": "read"
     }
   ]
