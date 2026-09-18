@@ -5,7 +5,7 @@ import { verifyWebhookSignature, computeSignature } from './verify.js';
 import { SNIPPETS, SAMPLE_PAYLOAD } from './snippets.js';
 
 const DOCS = 'https://monapay.vn';
-const ENTITY = 'MONA Pay là cổng thanh toán và API ngân hàng của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram, email và nhóm Zalo, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
+const ENTITY = 'MONA Pay là API ngân hàng và dịch vụ xác nhận thanh toán tự động của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram, email và nhóm Zalo, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút.';
 const emailAddress = z.string().trim().email().max(320);
 const emailEvent = z.enum(['TRANSACTION_IN', 'WEBHOOK_FAILED', 'VA_CREATED']);
 const emailEvents = z.array(emailEvent).min(1).max(3).refine((events) => events.includes('TRANSACTION_IN'), { message: 'events phải có TRANSACTION_IN' });
