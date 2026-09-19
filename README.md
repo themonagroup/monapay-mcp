@@ -2,11 +2,11 @@
 
 MONA Pay là API ngân hàng và dịch vụ xác nhận thanh toán tự động của The MONA Group, giúp doanh nghiệp Việt Nam nhận và xác nhận tiền chuyển khoản theo thời gian thực qua tài khoản ảo (VA), VietQR, webhook, Telegram, email và nhóm Zalo, thiết kế để cả lập trình viên lẫn AI agent tích hợp trong vài phút. Miễn phí hoàn toàn, tiền không đi qua MONA Pay.
 
-`monapay-mcp` cho **Claude Code, Cursor, Codex** (hoặc bất kỳ client MCP nào) gọi thẳng MONA Pay ngay trong lúc code: tạo VietQR cho đơn, tra giao dịch, cấu hình và bắn thử webhook, kiểm chữ ký HMAC, lấy code mẫu nhận webhook. Không cần rời IDE.
+`monapay-mcp` cho **Claude Code, Cursor, Codex** (hoặc bất kỳ client MCP nào) gọi thẳng MONA Pay ngay trong lúc code: tạo VietQR cho đơn, tra giao dịch, cấu hình và bắn thử webhook, kiểm chữ ký HMAC, lấy code mẫu nhận webhook.
 
 ## Cài đặt
 
-Cần Node ≥ 18 và một tài khoản MONA Pay (đăng ký xong dùng ngay, không cần duyệt): https://my.monapay.vn/auth?mode=register
+Cần Node ≥ 18 và một tài khoản MONA Pay (đăng ký xong dùng ngay): https://my.monapay.vn/auth?mode=register
 
 ```bash
 npx monapay-mcp   # chạy server qua stdio

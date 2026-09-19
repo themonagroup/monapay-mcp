@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "vn.monapay/monapay-mcp",
+  "description": "MONA Pay for AI agents: create VietQR, check bank transfers, webhooks & HMAC. Vietnam bank API, VND",
+  "repository": {
+    "url": "https://github.com/themonagroup/monapay-mcp",
+    "source": "github"
+  },
+  "version": "0.6.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "monapay-mcp",
+      "version": "0.6.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MONAPAY_CLIENT_ID",
+          "description": "MONA Pay API key client_id (create in dashboard my.monapay.vn).",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MONAPAY_CLIENT_SECRET",
+          "description": "MONA Pay API key client_secret (shown once). Needed for write actions (create QR, webhooks).",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MONAPAY_BASE_URL",
+          "description": "Optional API base URL (default production).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ],
+      "runtimeHint": "npx",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "-y",
+          "description": "npx auto-install"
+        }
+      ]
+    }
+  ],
+  "websiteUrl": "https://monapay.vn"
+}

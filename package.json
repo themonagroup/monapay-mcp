@@ -1,6 +1,6 @@
 {
   "name": "monapay-mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "MCP server cho MONA Pay — để Claude Code / Cursor / Codex tạo QR, tra giao dịch, cấu hình webhook MONA Pay ngay trong lúc code. MONA Pay là API ngân hàng và dịch vụ xác nhận thanh toán tự động của The MONA Group.",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,8 @@
     "dist",
     "README.md",
     "LICENSE",
-    "mcp-manifest.json"
+    "mcp-manifest.json",
+    "server.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -21,7 +22,9 @@
     "smoke": "npm run build && node scripts/smoke.mjs",
     "start": "node dist/index.js",
     "manifest": "node scripts/gen-manifest.mjs",
-    "prepublishOnly": "npm run build && npm run manifest"
+    "prepublishOnly": "npm run build && npm run manifest",
+    "mcpb": "node scripts/build-mcpb.mjs",
+    "mcpb:sync": "node scripts/mcpb-tools-sync.mjs"
   },
   "keywords": [
     "mcp",
@@ -40,7 +43,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/monapay/monapay-mcp"
+    "url": "git+https://github.com/themonagroup/monapay-mcp.git"
   },
   "homepage": "https://monapay.vn/ai-agent",
   "engines": {
@@ -53,5 +56,9 @@
   "devDependencies": {
     "@types/node": "^26.4.0",
     "typescript": "^7.0.2"
-  }
+  },
+  "bugs": {
+    "url": "https://github.com/themonagroup/monapay-mcp/issues"
+  },
+  "mcpName": "vn.monapay/monapay-mcp"
 }

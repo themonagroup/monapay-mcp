@@ -1,0 +1,274 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.2.schema.json",
+  "manifest_version": "0.2",
+  "name": "monapay-mcp",
+  "display_name": "MONA Pay",
+  "version": "0.6.1",
+  "description": "MONA Pay for AI agents: create VietQR codes, check incoming bank transfers, configure and test webhooks, verify HMAC signatures. Vietnam bank API in VND.",
+  "long_description": "monapay-mcp lets Claude Code, Codex or Cursor call MONA Pay while coding: create a VietQR for an order, look up transactions, create/test webhooks, verify HMAC-SHA256 signatures and get webhook handler snippets (PHP/Node/Python). MONA Pay is the bank API and automatic payment-confirmation service of The MONA Group (Vietnam).",
+  "author": {
+    "name": "The MONA Group",
+    "url": "https://monapay.vn"
+  },
+  "homepage": "https://monapay.vn",
+  "documentation": "https://monapay.vn/ai-agent",
+  "support": "https://github.com/themonagroup/monapay-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/themonagroup/monapay-mcp"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "monapay",
+    "vietqr",
+    "payment",
+    "bank",
+    "webhook",
+    "vietnam",
+    "vnd"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "MONAPAY_CLIENT_ID": "${user_config.monapay_client_id}",
+        "MONAPAY_CLIENT_SECRET": "${user_config.monapay_client_secret}"
+      }
+    }
+  },
+  "user_config": {
+    "monapay_client_id": {
+      "type": "string",
+      "title": "MONA Pay client_id",
+      "description": "API key client_id from my.monapay.vn dashboard.",
+      "required": true,
+      "sensitive": false
+    },
+    "monapay_client_secret": {
+      "type": "string",
+      "title": "MONA Pay client_secret",
+      "description": "API key client_secret (shown once). Needed for write actions.",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18"
+    }
+  },
+  "tools": [
+    {
+      "name": "monapay_me",
+      "description": "Lấy thông tin tài khoản MONA Pay đang đăng nhập (id, tên, trạng thái). / Get current MONA Pay client profile."
+    },
+    {
+      "name": "monapay_whoami",
+      "description": "Xác nhận client credentials đang hoạt động, trả tên tài khoản và gói hiện tại. / Verify connection and return account name and plan."
+    },
+    {
+      "name": "monapay_list_bank_accounts",
+      "description": "Liệt kê tài khoản ngân hàng (ACB…) đã nối vào MONA Pay. / List linked bank accounts."
+    },
+    {
+      "name": "monapay_list_virtual_accounts",
+      "description": "Liệt kê tài khoản ảo thuộc một tài khoản ngân hàng. / List virtual accounts of a bank account."
+    },
+    {
+      "name": "monapay_link_bank_start",
+      "description": "Bước 1/4: đăng ký tài khoản ACB + VA. OTP do ngân hàng gửi về điện thoại của người dùng; agent phải HỎI người dùng OTP rồi mới gọi tool xác thực, không được tự đoán. / Step 1/4: register the ACB account and VA. The OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling the verification tool and must never guess it."
+    },
+    {
+      "name": "monapay_link_bank_verify_otp",
+      "description": "Bước 2/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 2/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP."
+    },
+    {
+      "name": "monapay_notification_register",
+      "description": "Bước 3/4: đăng ký nhận thông báo giao dịch tức thì. OTP lần 2 do ngân hàng gửi về điện thoại của người dùng; agent phải HỎI người dùng rồi mới gọi tool xác thực, không được tự đoán. / Step 3/4: register real-time transaction notifications. The second OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before verification and must never guess it."
+    },
+    {
+      "name": "monapay_notification_verify_otp",
+      "description": "Bước 4/4: OTP do ngân hàng gửi về điện thoại của người dùng, agent phải HỎI người dùng rồi mới gọi tool này; tuyệt đối không tự đoán OTP. / Step 4/4: the OTP is sent by the bank to the user’s phone; the agent MUST ASK the user before calling this tool and must never guess the OTP."
+    },
+    {
+      "name": "monapay_get_payment_profile",
+      "description": "Lấy tên shop, nhận diện và tài khoản mặc định dùng cho trang thanh toán. / Get the hosted-checkout payment profile."
+    },
+    {
+      "name": "monapay_set_payment_profile",
+      "description": "Tạo hoặc cập nhật tên shop, nhận diện và tài khoản nhận tiền mặc định trước khi tạo checkout. Secret ký redirect chỉ được API trả một lần. / Create or update the hosted-checkout payment profile."
+    },
+    {
+      "name": "monapay_create_checkout",
+      "description": "Tạo link thu tiền, đưa link cho khách hoặc chuyển hướng checkout; đợi webhook CHECKOUT_PAID trước khi giao hàng. / Create a hosted checkout link; wait for CHECKOUT_PAID before fulfilment."
+    },
+    {
+      "name": "monapay_get_checkout",
+      "description": "Lấy trạng thái và chi tiết checkout theo ID; nên kiểm tra server-side trước khi giao hàng. / Get a checkout by ID."
+    },
+    {
+      "name": "monapay_list_checkouts",
+      "description": "Liệt kê checkout theo trạng thái, mã đơn, khoảng ngày và phân trang. / List and filter hosted checkouts."
+    },
+    {
+      "name": "monapay_cancel_checkout",
+      "description": "Huỷ checkout đang pending; checkout đã paid, expired hoặc cancelled không thể huỷ lại. / Cancel a pending checkout."
+    },
+    {
+      "name": "monapay_create_qr",
+      "description": "Tạo mã VietQR động điền sẵn số tiền + nội dung cho một đơn hàng qua ACB. Khách quét là tiền vào tài khoản ảo, MONA Pay bắn webhook. / Create a dynamic VietQR for an order."
+    },
+    {
+      "name": "monapay_cancel_qr",
+      "description": "Huỷ một mã VietQR động đã tạo. / Cancel a dynamic QR."
+    },
+    {
+      "name": "monapay_list_transactions",
+      "description": "Liệt kê giao dịch tiền vào theo tài khoản ảo, phân trang tối đa 100/trang; dùng để đối soát. / List incoming transactions."
+    },
+    {
+      "name": "monapay_sandbox_transaction",
+      "description": "Tạo một giao dịch tiền vào GIẢ: chưa nối ngân hàng thì MONA Pay tự cấp VA sandbox SBX; MONA Pay ghi giao dịch, bắn webhook có chữ ký, gửi Telegram/email/Zalo, khớp checkout như tiền thật, không tính hạn mức. / Create a fake incoming transaction in the sandbox."
+    },
+    {
+      "name": "monapay_list_webhooks",
+      "description": "Liệt kê webhook đã cấu hình. / List webhook configs."
+    },
+    {
+      "name": "monapay_create_webhook",
+      "description": "Đăng ký URL nhận webhook khi có tiền vào; khuyến nghị auth_type HMAC_SHA256 + secret_key. / Create a webhook config."
+    },
+    {
+      "name": "monapay_update_webhook",
+      "description": "Cập nhật webhook (URL, secret, bật/tắt). / Update a webhook config."
+    },
+    {
+      "name": "monapay_delete_webhook",
+      "description": "Xoá một webhook config. / Delete a webhook config."
+    },
+    {
+      "name": "monapay_test_webhook",
+      "description": "MONA Pay gửi một giao dịch giả (is_dummy) tới URL để kiểm tra endpoint + chữ ký. / Send a dummy webhook."
+    },
+    {
+      "name": "monapay_webhook_logs",
+      "description": "Lịch sử từng lần gửi (HTTP code, thời gian phản hồi, nhãn lỗi). / Webhook delivery logs."
+    },
+    {
+      "name": "monapay_webhook_stats",
+      "description": "Tỷ lệ thành công, P95, phân loại lỗi. / Webhook delivery stats."
+    },
+    {
+      "name": "monapay_list_email_configs",
+      "description": "Liệt kê các cấu hình gửi thông báo email và trạng thái xác minh người nhận. / List email notification configs and recipient verification status."
+    },
+    {
+      "name": "monapay_create_email_config",
+      "description": "Tạo kênh thông báo email. Sau khi tạo, MONA Pay gửi mã 6 số tới từng địa chỉ; hỏi người dùng mã rồi gọi monapay_verify_email; không tự đoán mã. / Create an email notification config. MONA Pay sends a 6-digit code to each address; ask the user for each code, call monapay_verify_email, and never guess a code."
+    },
+    {
+      "name": "monapay_update_email_config",
+      "description": "Cập nhật tên, người nhận, sự kiện, VA hoặc trạng thái bật/tắt của cấu hình email. Người nhận mới phải xác minh trước khi cấu hình hoạt động. / Update an email config; new recipients must be verified before activation."
+    },
+    {
+      "name": "monapay_delete_email_config",
+      "description": "Xoá vĩnh viễn một cấu hình email. / Permanently delete an email notification config."
+    },
+    {
+      "name": "monapay_verify_email",
+      "description": "Xác minh một người nhận bằng đúng mã 6 số người dùng đọc từ hộp thư; phải hỏi người dùng và không tự đoán mã. / Verify a recipient with the exact 6-digit code supplied by the user; never guess it."
+    },
+    {
+      "name": "monapay_resend_email_verification",
+      "description": "Gửi mã xác minh mới tới một địa chỉ trong cấu hình; giới hạn 5 lần/địa chỉ/giờ. / Resend a verification code, limited to five requests per address per hour."
+    },
+    {
+      "name": "monapay_test_email",
+      "description": "Gửi email mẫu tới các địa chỉ đã xác minh trong cấu hình. / Send a test notification to verified recipients in a config."
+    },
+    {
+      "name": "monapay_email_logs",
+      "description": "Tra meta từng lần gửi email, không chứa nội dung thư; lọc theo cấu hình, trạng thái, sự kiện và ngày. / List email delivery metadata; message bodies are never stored."
+    },
+    {
+      "name": "monapay_email_stats",
+      "description": "Lấy tổng số gửi, tỷ lệ thành công, P95 và nhóm lỗi trong khoảng ngày. / Get email delivery totals, success rate, P95 latency and error groups."
+    },
+    {
+      "name": "monapay_list_email_suppressions",
+      "description": "Liệt kê địa chỉ bị suppression do bounce, khiếu nại hoặc tắt tay. / List suppressed recipient addresses."
+    },
+    {
+      "name": "monapay_remove_email_suppression",
+      "description": "Gỡ suppression sau khi đã sửa nguyên nhân; client tự chịu trách nhiệm khi gửi lại. / Remove a suppression after fixing its cause; the client accepts responsibility for future sends."
+    },
+    {
+      "name": "monapay_list_zalo_groups",
+      "description": "Liệt kê cấu hình thông báo nhóm Zalo; nhóm phải có bot Gấu Mona."
+    },
+    {
+      "name": "monapay_create_zalo_group",
+      "description": "Nối nhóm có bot Gấu Mona bằng group_id 10–25 chữ số lấy từ MONA Account/PMS; Zalo không parse Markdown, nên template phải là text thuần."
+    },
+    {
+      "name": "monapay_update_zalo_group",
+      "description": "Sửa cấu hình nhóm có bot Gấu Mona; group_id lấy từ MONA Account/PMS và template dùng text thuần vì Zalo không parse Markdown."
+    },
+    {
+      "name": "monapay_delete_zalo_group",
+      "description": "Xoá một cấu hình thông báo nhóm Zalo."
+    },
+    {
+      "name": "monapay_test_zalo_group",
+      "description": "Gửi tin thử text thuần; nhóm phải có bot Gấu Mona vì Zalo không parse Markdown."
+    },
+    {
+      "name": "monapay_zalo_group_logs",
+      "description": "Tra lịch sử gửi vào nhóm Zalo, lọc trạng thái thành công hoặc thất bại."
+    },
+    {
+      "name": "monapay_retry_transaction",
+      "description": "Gửi lại webhook hoặc Telegram cho giao dịch đã có. / Re-send webhook/Telegram for a transaction."
+    },
+    {
+      "name": "monapay_generate_key",
+      "description": "Sinh client_secret mới (hiện 1 lần) để dùng header X-Client-Secret. / Generate a client secret."
+    },
+    {
+      "name": "monapay_rotate_key",
+      "description": "Dùng khi secret nghi lộ; xoay key hiện tại bằng X-Client-Secret. Sau khi xoay phải cập nhật MONAPAY_CLIENT_SECRET ở plugin/agent rồi khởi động lại. / Rotate the current API key secret after suspected exposure, then update MONAPAY_CLIENT_SECRET."
+    },
+    {
+      "name": "monapay_verify_signature",
+      "description": "Tính và so chữ ký HMAC-SHA256 của một webhook MONA Pay từ raw body + timestamp + secret, không gọi mạng. / Verify a webhook signature locally."
+    },
+    {
+      "name": "monapay_generate_webhook_snippet",
+      "description": "Trả code mẫu endpoint nhận webhook MONA Pay + verify HMAC đúng chuẩn cho PHP / Node / Python, kèm payload mẫu. / Get a webhook receiver snippet."
+    },
+    {
+      "name": "monapay_quickstart",
+      "description": "DIEM VAO cho y dinh \"toi muon nhan tien chuyen khoan tu dong\". Goi tool nay TRUOC: no kiem tra tai khoan (da noi ngan hang/VA chua, da co webhook chua) va tra ve cac BUOC TIEP THEO cu the + recipe end-to-end. / Entry point for \"I want to receive bank transfers\": checks state and returns concrete next steps + recipe."
+    },
+    {
+      "name": "monapay_get_transaction",
+      "description": "Tim 1 giao dich tien vao theo transaction_code (ma don, vd DH10234) hoac id trong mot tai khoan ao; dung de kiem \"don X da thanh toan chua\". / Get one incoming transaction by code/id within a virtual account."
+    },
+    {
+      "name": "monapay_get_transactions_summary",
+      "description": "Tong tien vao + so giao dich + du lieu theo ngay trong khoang chon. LUU Y: MONA Pay KHONG giu tien, khong co \"so du vi\"; day la tong tien da vao tai khoan ngan hang cua ban. / Incoming totals over a date range (MONA Pay holds no wallet balance)."
+    }
+  ]
+}
