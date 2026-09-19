@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "monapay": {
+      "command": "npx", "args": ["-y", "monapay-mcp"],
+      "env": { "MONAPAY_CLIENT_ID": "${MONAPAY_CLIENT_ID}", "MONAPAY_CLIENT_SECRET": "${MONAPAY_CLIENT_SECRET}" }
+    }
+  }
+}
